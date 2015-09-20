@@ -380,8 +380,10 @@ where P: AsRef<Path>, Q: AsRef<Path> {
         s.as_os_str().encode_wide().chain(Some(0)).collect()
     }
 
-    let i1 = try!(file_info(try!(open_read_attr(&p1))));
-    let i2 = try!(file_info(try!(open_read_attr(&p2))));
+    let h1 = try!(open_read_attr(&p1));
+    let h2 = try!(open_read_attr(&p2));
+    let i1 = try!(file_info(h1));
+    let i2 = try!(file_info(h2));
     Ok((i1.dwVolumeSerialNumber, i1.nFileIndexHigh, i1.nFileIndexLow)
        == (i2.dwVolumeSerialNumber, i2.nFileIndexHigh, i2.nFileIndexLow))
 }
