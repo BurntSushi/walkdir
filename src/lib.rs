@@ -311,7 +311,7 @@ fn is_same_file<P, Q>(
     p2: Q,
 ) -> io::Result<bool>
 where P: AsRef<Path>, Q: AsRef<Path> {
-    // My hope is that most of this gets moved into `std::sys::windows`.
+    // My hope is that most of this gets moved into `std::sys::windows`. ---AG
     extern crate libc;
 
     use std::fs::File;
@@ -380,20 +380,10 @@ where P: AsRef<Path>, Q: AsRef<Path> {
         s.as_os_str().encode_wide().chain(Some(0)).collect()
     }
 
-    let h1 = try!(open_read_attr(&p1));
-    let h2 = try!(open_read_attr(&p2));
-    let i1 = try!(file_info(h1));
-    let i2 = try!(file_info(h2));
+    let i1 = try!(file_info(try!(open_read_attr(&p1))));
+    let i2 = try!(file_info(try!(open_read_attr(&p2))));
     Ok((i1.dwVolumeSerialNumber, i1.nFileIndexHigh, i1.nFileIndexLow)
        == (i2.dwVolumeSerialNumber, i2.nFileIndexHigh, i2.nFileIndexLow))
-}
-
-fn read_link<P: AsRef<Path>>(p: P) -> PathBuf {
-    if fs::symlink_metadata(&p).unwrap().file_type().is_symlink() {
-        fs::read_link(&p).unwrap()
-    } else {
-        p.as_ref().to_path_buf()
-    }
 }
 
 #[cfg(unix)]
