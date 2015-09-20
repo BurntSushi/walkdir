@@ -18,6 +18,8 @@ struct WalkDirOptions {
     follow_links: bool,
     max_open: usize,
     contents_first: bool,
+    min_depth: usize,
+    max_depth: usize,
 }
 
 impl<P: AsRef<Path>> WalkDirBuilder<P> {
@@ -28,6 +30,8 @@ impl<P: AsRef<Path>> WalkDirBuilder<P> {
                 follow_links: false,
                 max_open: 32,
                 contents_first: false,
+                min_depth: 0,
+                max_depth: ::std::usize::MAX,
             }
         }
     }
@@ -51,6 +55,16 @@ impl<P: AsRef<Path>> WalkDirBuilder<P> {
         self.opts.contents_first = yes;
         self
     }
+
+    pub fn min_depth(mut self, depth: usize) -> Self {
+        self.opts.min_depth = depth;
+        self
+    }
+
+    pub fn max_depth(mut self, depth: usize) -> Self {
+        self.opts.max_depth = depth;
+        self
+    }
 }
 
 impl<P: AsRef<Path>> IntoIterator for WalkDirBuilder<P> {
@@ -58,6 +72,7 @@ impl<P: AsRef<Path>> IntoIterator for WalkDirBuilder<P> {
     type IntoIter = WalkDir;
 
     fn into_iter(self) -> WalkDir {
+        assert!(self.opts.min_depth <= self.opts.max_depth);
         WalkDir {
             start: Some(self.root.as_ref().to_path_buf()),
             stack: vec![],
@@ -105,14 +120,26 @@ impl Iterator for WalkDir {
             }
         }
 
+        macro_rules! skip {
+            ($walkdir:expr, $depth:expr, $ret:expr) => {{
+                let d = $depth;
+                if d < $walkdir.opts.min_depth || d > $walkdir.opts.max_depth {
+                    continue;
+                } else {
+                    return $ret;
+                }
+            }}
+        }
+
         if let Some(start) = self.start.take() {
             self.push_path(start, None);
         }
         while !self.stack.is_empty() {
+            let depth = self.stack.len() - 1;
             let dent = match self.stack.last_mut().and_then(|v| v.next()) {
                 None => {
                     if let Dir::Entry(dent) = self.pop().dir {
-                        return Some(Ok(dent));
+                        skip!(self, depth - 1, Some(Ok(dent)));
                     } else {
                         continue;
                     }
@@ -125,24 +152,33 @@ impl Iterator for WalkDir {
             let mut ty = walk_try!(dent, dent.file_type());
             if ty.is_symlink() {
                 if !self.opts.follow_links {
-                    return Some(Ok(dent));
+                    skip!(self, depth, Some(Ok(dent)));
                 } else {
-                    let symlink = dent.path();
-                    ty = walk_try!(dent, fs::metadata(&symlink)).file_type();
+                    let p = dent.path();
+                    ty = walk_try!(dent, fs::metadata(&p)).file_type();
                     assert!(!ty.is_symlink());
-
-                    let looperr = walk_try!(dent, self.loop_error(symlink));
-                    if let Some(err) = looperr {
-                        return Some(Err(err));
+                    // The only way a symlink can cause a loop is if it points
+                    // to a directory. Otherwise, it always points to a leaf
+                    // and we can omit any loop checks.
+                    if ty.is_dir() {
+                        let looperr = walk_try!(dent, self.loop_error(p));
+                        if let Some(err) = looperr {
+                            return Some(Err(err));
+                        }
                     }
                 }
             }
             if ty.is_dir() {
-                if let Some(dent) = self.push(dent) {
+                if depth == self.opts.max_depth {
+                    // Don't descend into this directory, just return it.
+                    // Since min_depth <= max_depth, we don't need to check
+                    // if we're skipping here.
                     return Some(Ok(dent));
+                } else if let Some(dent) = self.push(dent) {
+                    skip!(self, depth, Some(Ok(dent)));
                 }
             } else {
-                return Some(Ok(dent));
+                skip!(self, depth, Some(Ok(dent)));
             }
         }
         None
@@ -150,6 +186,16 @@ impl Iterator for WalkDir {
 }
 
 impl WalkDir {
+    pub fn skip_current_dir(&mut self) {
+        if !self.stack.is_empty() {
+            self.stack.pop();
+        }
+    }
+
+    fn depth(&self) -> usize {
+        self.stack.len().saturating_sub(1)
+    }
+
     fn push(&mut self, dent: DirEntry) -> Option<DirEntry> {
         self.push_path(dent.path(), Some(dent))
     }
@@ -305,18 +351,44 @@ impl fmt::Display for WalkDirError {
     }
 }
 
+// Below are platform specific functions for testing the equality of two
+// files. Namely, we want to know whether the two paths points to precisely
+// the same underlying file object.
+//
+// In our particular use case, the paths should only be directories. If we're
+// assuming that directories cannot be hard linked, then it seems like equality
+// could be determined by canonicalizing both paths.
+//
+// ---AG
+
 #[cfg(windows)]
 fn is_same_file<P, Q>(
     p1: P,
     p2: Q,
 ) -> io::Result<bool>
 where P: AsRef<Path>, Q: AsRef<Path> {
-    // My hope is that most of this gets moved into `std::sys::windows`. ---AG
+    // My hope is that most of this gets moved/deleted by reusing code in
+    // `sys::windows`.
     extern crate libc;
 
     use std::fs::File;
+    use std::mem;
+    use std::ops::{Deref, Drop};
     use std::os::windows::prelude::*;
     use std::ptr;
+
+    struct Handle(RawHandle);
+
+    impl Drop for Handle {
+        fn drop(&mut self) {
+            unsafe { let _ = libc::CloseHandle(mem::transmute(self.0)); }
+        }
+    }
+
+    impl Deref for Handle {
+        type Target = RawHandle;
+        fn deref(&self) -> &RawHandle { &self.0 }
+    }
 
     #[repr(C)]
     #[allow(non_snake_case)]
@@ -336,19 +408,19 @@ where P: AsRef<Path>, Q: AsRef<Path> {
     #[allow(non_camel_case_types)]
     type LPBY_HANDLE_FILE_INFORMATION = *mut BY_HANDLE_FILE_INFORMATION;
 
-    #[link(name = "ws2_32")]
-    #[link(name = "userenv")]
-    extern "system" {
-        fn GetFileInformationByHandle(
-            hFile: RawHandle,
-            lpFileInformation: LPBY_HANDLE_FILE_INFORMATION,
-        ) -> libc::BOOL;
-    }
+    fn file_info(h: &Handle) -> io::Result<BY_HANDLE_FILE_INFORMATION> {
+        #[link(name = "ws2_32")]
+        #[link(name = "userenv")]
+        extern "system" {
+            fn GetFileInformationByHandle(
+                hFile: RawHandle,
+                lpFileInformation: LPBY_HANDLE_FILE_INFORMATION,
+            ) -> libc::BOOL;
+        }
 
-    fn file_info(h: RawHandle) -> io::Result<BY_HANDLE_FILE_INFORMATION> {
         unsafe {
             let mut info: BY_HANDLE_FILE_INFORMATION = ::std::mem::zeroed();
-            if GetFileInformationByHandle(h, &mut info) == 0 {
+            if GetFileInformationByHandle(**h, &mut info) == 0 {
                 Err(io::Error::last_os_error())
             } else {
                 Ok(info)
@@ -356,11 +428,17 @@ where P: AsRef<Path>, Q: AsRef<Path> {
         }
     }
 
-    fn open_read_attr<P: AsRef<Path>>(p: P) -> io::Result<RawHandle> {
+    fn open_read_attr<P: AsRef<Path>>(p: P) -> io::Result<Handle> {
+        // Can openfully use OpenOptions in sys::windows. ---AG
+        // All of these options should be the default as per
+        // sys::windows::fs::OpenOptions except for `flags_and_attributes`.
+        // In particular, according to MSDN, `FILE_FLAG_BACKUP_SEMANTICS`
+        // must be set in order to get a handle to a directory:
+        // https://msdn.microsoft.com/en-us/library/windows/desktop/aa363858(v=vs.85).aspx
         let h = unsafe {
             libc::CreateFileW(
                 to_utf16(p.as_ref()).as_ptr(),
-                libc::FILE_READ_ATTRIBUTES,
+                0,
                 libc::FILE_SHARE_READ
                 | libc::FILE_SHARE_WRITE
                 | libc::FILE_SHARE_DELETE,
@@ -372,7 +450,7 @@ where P: AsRef<Path>, Q: AsRef<Path> {
         if h == libc::INVALID_HANDLE_VALUE {
             Err(io::Error::last_os_error())
         } else {
-            Ok(unsafe { ::std::mem::transmute(h) })
+            Ok(Handle(unsafe { mem::transmute(h) }))
         }
     }
 
@@ -380,10 +458,43 @@ where P: AsRef<Path>, Q: AsRef<Path> {
         s.as_os_str().encode_wide().chain(Some(0)).collect()
     }
 
+    // For correctness, it is critical that both file handles remain open
+    // while their attributes are checked for equality. In particular,
+    // the file index numbers are not guaranteed to remain stable over time.
+    //
+    // See the docs and remarks on MSDN:
+    // https://msdn.microsoft.com/en-us/library/windows/desktop/aa363788(v=vs.85).aspx
+    //
+    // It gets worse. It appears that the index numbers are not always
+    // guaranteed to be unqiue. Namely, ReFS uses 128 bit numbers for unique
+    // identifiers. This requires a distinct syscall to get `FILE_ID_INFO`
+    // documented here:
+    // https://msdn.microsoft.com/en-us/library/windows/desktop/hh802691(v=vs.85).aspx
+    //
+    // It seems straight-forward enough to modify this code to use
+    // `FILE_ID_INFO` when available (minimum Windows Server 2012), but
+    // I don't have access to such Windows machines.
+    //
+    // Two notes.
+    //
+    // 1. Java's NIO uses the approach implemented here and appears to ignore
+    //    `FILE_ID_INFO` altogether. So Java's NIO and this code are
+    //    susceptible to bugs when running on a file system where
+    //    `nFileIndex{Low,High}` are not unique.
+    //
+    // 2. LLVM has a bug where they fetch the id of a file and continue to use
+    //    it even after the file has been closed, so that uniqueness is no
+    //    longer guaranteed (when `nFileIndex{Low,High}` are unique).
+    //    bug report: http://lists.llvm.org/pipermail/llvm-bugs/2014-December/037218.html
+    //
+    // All said and done, checking whether two files are the same on Windows
+    // seems quite tricky. Moreover, even if the code is technically incorrect,
+    // it seems like the chances of actually observing incorrect behavior are
+    // extremely small.
     let h1 = try!(open_read_attr(&p1));
     let h2 = try!(open_read_attr(&p2));
-    let i1 = try!(file_info(h1));
-    let i2 = try!(file_info(h2));
+    let i1 = try!(file_info(&h1));
+    let i2 = try!(file_info(&h2));
     Ok((i1.dwVolumeSerialNumber, i1.nFileIndexHigh, i1.nFileIndexLow)
        == (i2.dwVolumeSerialNumber, i2.nFileIndexHigh, i2.nFileIndexLow))
 }
@@ -397,5 +508,5 @@ where P: AsRef<Path>, Q: AsRef<Path> {
     use std::os::unix::fs::MetadataExt;
     let md1 = try!(fs::metadata(p1));
     let md2 = try!(fs::metadata(p2));
-    Ok((md1.dev(), md1.ino()) == (md2.dev(), md2.ino()))
+    Ok((md1.ino(), md1.dev()) == (md2.ino(), md2.dev()))
 }
