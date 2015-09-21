@@ -1,15 +1,18 @@
-#![allow(dead_code, unused_variables, unused_imports)]
-
 use std::cmp::min;
 use std::borrow::Cow;
 use std::error;
 use std::fmt;
-use std::fs::{self, DirEntry, Metadata, ReadDir};
+use std::fs::{self, DirEntry, ReadDir};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::vec;
 
-pub struct WalkDirBuilder<P> {
+use same_file::is_same_file;
+
+mod same_file;
+
+/// Create an iterator to recursively walk a directory.
+pub struct WalkDir<P> {
     root: P,
     opts: WalkDirOptions,
 }
@@ -22,9 +25,9 @@ struct WalkDirOptions {
     max_depth: usize,
 }
 
-impl<P: AsRef<Path>> WalkDirBuilder<P> {
+impl<P: AsRef<Path>> WalkDir<P> {
     pub fn new(root: P) -> Self {
-        WalkDirBuilder {
+        WalkDir {
             root: root,
             opts: WalkDirOptions {
                 follow_links: false,
@@ -67,26 +70,28 @@ impl<P: AsRef<Path>> WalkDirBuilder<P> {
     }
 }
 
-impl<P: AsRef<Path>> IntoIterator for WalkDirBuilder<P> {
+impl<P: AsRef<Path>> IntoIterator for WalkDir<P> {
     type Item = Result<DirEntry, WalkDirError>;
-    type IntoIter = WalkDir;
+    type IntoIter = WalkDirIter;
 
-    fn into_iter(self) -> WalkDir {
+    fn into_iter(self) -> WalkDirIter {
         assert!(self.opts.min_depth <= self.opts.max_depth);
-        WalkDir {
+        WalkDirIter {
+            opts: self.opts,
             start: Some(self.root.as_ref().to_path_buf()),
             stack: vec![],
             oldest_opened: 0,
-            opts: self.opts,
+            depth: 0,
         }
     }
 }
 
-pub struct WalkDir {
+pub struct WalkDirIter {
+    opts: WalkDirOptions,
     start: Option<PathBuf>,
     stack: Vec<StackEntry>,
     oldest_opened: usize,
-    opts: WalkDirOptions,
+    depth: usize,
 }
 
 struct StackEntry {
@@ -104,7 +109,7 @@ enum DirList {
     Closed(vec::IntoIter<Result<DirEntry, WalkDirError>>),
 }
 
-impl Iterator for WalkDir {
+impl Iterator for WalkDirIter {
     type Item = Result<DirEntry, WalkDirError>;
 
     fn next(&mut self) -> Option<Result<DirEntry, WalkDirError>> {
@@ -121,8 +126,8 @@ impl Iterator for WalkDir {
         }
 
         macro_rules! skip {
-            ($walkdir:expr, $depth:expr, $ret:expr) => {{
-                let d = $depth;
+            ($walkdir:expr, $ret:expr) => {{
+                let d = $walkdir.depth;
                 if d < $walkdir.opts.min_depth || d > $walkdir.opts.max_depth {
                     continue;
                 } else {
@@ -135,11 +140,12 @@ impl Iterator for WalkDir {
             self.push_path(start, None);
         }
         while !self.stack.is_empty() {
-            let depth = self.stack.len() - 1;
+            self.depth = self.stack.len() - 1;
             let dent = match self.stack.last_mut().and_then(|v| v.next()) {
                 None => {
                     if let Dir::Entry(dent) = self.pop().dir {
-                        skip!(self, depth - 1, Some(Ok(dent)));
+                        self.depth -= 1;
+                        skip!(self, Some(Ok(dent)));
                     } else {
                         continue;
                     }
@@ -152,7 +158,7 @@ impl Iterator for WalkDir {
             let mut ty = walk_try!(dent, dent.file_type());
             if ty.is_symlink() {
                 if !self.opts.follow_links {
-                    skip!(self, depth, Some(Ok(dent)));
+                    skip!(self, Some(Ok(dent)));
                 } else {
                     let p = dent.path();
                     ty = walk_try!(dent, fs::metadata(&p)).file_type();
@@ -169,31 +175,34 @@ impl Iterator for WalkDir {
                 }
             }
             if ty.is_dir() {
-                if depth == self.opts.max_depth {
+                if self.depth == self.opts.max_depth {
                     // Don't descend into this directory, just return it.
                     // Since min_depth <= max_depth, we don't need to check
                     // if we're skipping here.
+                    //
+                    // Note that this is a perf optimization and is not
+                    // required for correctness.
                     return Some(Ok(dent));
                 } else if let Some(dent) = self.push(dent) {
-                    skip!(self, depth, Some(Ok(dent)));
+                    skip!(self, Some(Ok(dent)));
                 }
             } else {
-                skip!(self, depth, Some(Ok(dent)));
+                skip!(self, Some(Ok(dent)));
             }
         }
         None
     }
 }
 
-impl WalkDir {
+impl WalkDirIter {
     pub fn skip_current_dir(&mut self) {
         if !self.stack.is_empty() {
             self.stack.pop();
         }
     }
 
-    fn depth(&self) -> usize {
-        self.stack.len().saturating_sub(1)
+    pub fn depth(&self) -> usize {
+        self.depth
     }
 
     fn push(&mut self, dent: DirEntry) -> Option<DirEntry> {
@@ -351,162 +360,166 @@ impl fmt::Display for WalkDirError {
     }
 }
 
-// Below are platform specific functions for testing the equality of two
-// files. Namely, we want to know whether the two paths points to precisely
-// the same underlying file object.
-//
-// In our particular use case, the paths should only be directories. If we're
-// assuming that directories cannot be hard linked, then it seems like equality
-// could be determined by canonicalizing both paths.
-//
-// ---AG
-
-#[cfg(windows)]
-fn is_same_file<P, Q>(
-    p1: P,
-    p2: Q,
-) -> io::Result<bool>
-where P: AsRef<Path>, Q: AsRef<Path> {
-    // My hope is that most of this gets moved/deleted by reusing code in
-    // `sys::windows`.
-    extern crate libc;
-
-    use std::fs::File;
-    use std::mem;
-    use std::ops::{Deref, Drop};
-    use std::os::windows::prelude::*;
-    use std::ptr;
-
-    struct Handle(RawHandle);
-
-    impl Drop for Handle {
-        fn drop(&mut self) {
-            unsafe { let _ = libc::CloseHandle(mem::transmute(self.0)); }
-        }
-    }
-
-    impl Deref for Handle {
-        type Target = RawHandle;
-        fn deref(&self) -> &RawHandle { &self.0 }
-    }
-
-    #[repr(C)]
-    #[allow(non_snake_case)]
-    struct BY_HANDLE_FILE_INFORMATION {
-        dwFileAttributes: libc::DWORD,
-        ftCreationTime: libc::FILETIME,
-        ftLastAccessTime: libc::FILETIME,
-        ftLastWriteTime: libc::FILETIME,
-        dwVolumeSerialNumber: libc::DWORD,
-        nFileSizeHigh: libc::DWORD,
-        nFileSizeLow: libc::DWORD,
-        nNumberOfLinks: libc::DWORD,
-        nFileIndexHigh: libc::DWORD,
-        nFileIndexLow: libc::DWORD,
-    }
-
-    #[allow(non_camel_case_types)]
-    type LPBY_HANDLE_FILE_INFORMATION = *mut BY_HANDLE_FILE_INFORMATION;
-
-    fn file_info(h: &Handle) -> io::Result<BY_HANDLE_FILE_INFORMATION> {
-        #[link(name = "ws2_32")]
-        #[link(name = "userenv")]
-        extern "system" {
-            fn GetFileInformationByHandle(
-                hFile: RawHandle,
-                lpFileInformation: LPBY_HANDLE_FILE_INFORMATION,
-            ) -> libc::BOOL;
-        }
-
-        unsafe {
-            let mut info: BY_HANDLE_FILE_INFORMATION = ::std::mem::zeroed();
-            if GetFileInformationByHandle(**h, &mut info) == 0 {
-                Err(io::Error::last_os_error())
-            } else {
-                Ok(info)
+impl From<WalkDirError> for io::Error {
+    fn from(err: WalkDirError) -> io::Error {
+        match err {
+            WalkDirError::Io { err, .. } => err,
+            err @ WalkDirError::Loop { .. } => {
+                io::Error::new(io::ErrorKind::Other, err)
             }
         }
     }
+}
 
-    fn open_read_attr<P: AsRef<Path>>(p: P) -> io::Result<Handle> {
-        // Can openfully use OpenOptions in sys::windows. ---AG
-        // All of these options should be the default as per
-        // sys::windows::fs::OpenOptions except for `flags_and_attributes`.
-        // In particular, according to MSDN, `FILE_FLAG_BACKUP_SEMANTICS`
-        // must be set in order to get a handle to a directory:
-        // https://msdn.microsoft.com/en-us/library/windows/desktop/aa363858(v=vs.85).aspx
-        let h = unsafe {
-            libc::CreateFileW(
-                to_utf16(p.as_ref()).as_ptr(),
-                0,
-                libc::FILE_SHARE_READ
-                | libc::FILE_SHARE_WRITE
-                | libc::FILE_SHARE_DELETE,
-                ptr::null_mut(),
-                libc::OPEN_EXISTING,
-                libc::FILE_FLAG_BACKUP_SEMANTICS,
-                ptr::null_mut())
-        };
-        if h == libc::INVALID_HANDLE_VALUE {
-            Err(io::Error::last_os_error())
-        } else {
-            Ok(Handle(unsafe { mem::transmute(h) }))
+#[cfg(test)]
+mod tests {
+    #![allow(dead_code, unused_imports)]
+
+    extern crate rand;
+
+    use std::env;
+    use std::fs::{self, File};
+    use std::io;
+    use std::path::{Path, PathBuf};
+
+    use self::rand::Rng;
+
+    use super::{WalkDir, WalkDirError};
+
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn join(&self, path: &str) -> PathBuf {
+            (&*self.0).join(path)
+        }
+
+        fn path<'a>(&'a self) -> &'a Path {
+            &self.0
         }
     }
 
-    fn to_utf16(s: &Path) -> Vec<u16> {
-        s.as_os_str().encode_wide().chain(Some(0)).collect()
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.0).unwrap();
+        }
     }
 
-    // For correctness, it is critical that both file handles remain open
-    // while their attributes are checked for equality. In particular,
-    // the file index numbers are not guaranteed to remain stable over time.
-    //
-    // See the docs and remarks on MSDN:
-    // https://msdn.microsoft.com/en-us/library/windows/desktop/aa363788(v=vs.85).aspx
-    //
-    // It gets worse. It appears that the index numbers are not always
-    // guaranteed to be unqiue. Namely, ReFS uses 128 bit numbers for unique
-    // identifiers. This requires a distinct syscall to get `FILE_ID_INFO`
-    // documented here:
-    // https://msdn.microsoft.com/en-us/library/windows/desktop/hh802691(v=vs.85).aspx
-    //
-    // It seems straight-forward enough to modify this code to use
-    // `FILE_ID_INFO` when available (minimum Windows Server 2012), but
-    // I don't have access to such Windows machines.
-    //
-    // Two notes.
-    //
-    // 1. Java's NIO uses the approach implemented here and appears to ignore
-    //    `FILE_ID_INFO` altogether. So Java's NIO and this code are
-    //    susceptible to bugs when running on a file system where
-    //    `nFileIndex{Low,High}` are not unique.
-    //
-    // 2. LLVM has a bug where they fetch the id of a file and continue to use
-    //    it even after the file has been closed, so that uniqueness is no
-    //    longer guaranteed (when `nFileIndex{Low,High}` are unique).
-    //    bug report: http://lists.llvm.org/pipermail/llvm-bugs/2014-December/037218.html
-    //
-    // All said and done, checking whether two files are the same on Windows
-    // seems quite tricky. Moreover, even if the code is technically incorrect,
-    // it seems like the chances of actually observing incorrect behavior are
-    // extremely small.
-    let h1 = try!(open_read_attr(&p1));
-    let h2 = try!(open_read_attr(&p2));
-    let i1 = try!(file_info(&h1));
-    let i2 = try!(file_info(&h2));
-    Ok((i1.dwVolumeSerialNumber, i1.nFileIndexHigh, i1.nFileIndexLow)
-       == (i2.dwVolumeSerialNumber, i2.nFileIndexHigh, i2.nFileIndexLow))
-}
+    fn tmpdir() -> TempDir {
+        let p = env::temp_dir();
+        let mut r = rand::thread_rng();
+        let ret = p.join(&format!("rust-{}", r.next_u32()));
+        fs::create_dir(&ret).unwrap();
+        TempDir(ret)
+    }
 
-#[cfg(unix)]
-fn is_same_file<P, Q>(
-    p1: P,
-    p2: Q,
-) -> io::Result<bool>
-where P: AsRef<Path>, Q: AsRef<Path> {
-    use std::os::unix::fs::MetadataExt;
-    let md1 = try!(fs::metadata(p1));
-    let md2 = try!(fs::metadata(p2));
-    Ok((md1.ino(), md1.dev()) == (md2.ino(), md2.dev()))
+    fn p<P: AsRef<Path>>(path: P) -> PathBuf { path.as_ref().to_path_buf() }
+
+    #[derive(Debug, Eq, PartialEq)]
+    enum Tree {
+        Dir(PathBuf, Vec<Tree>),
+        File(PathBuf),
+    }
+
+    impl Tree {
+        fn from_walk<P: AsRef<Path>>(root: P) -> io::Result<Tree> {
+            let mut tree = Tree::Dir(root.as_ref().to_path_buf(), vec![]);
+            let mut it = WalkDir::new(root).into_iter();
+            loop {
+                let dent = match it.next() {
+                    None => break,
+                    Some(dent) => try!(dent),
+                };
+                let name =
+                    AsRef::<Path>::as_ref(&dent.file_name()).to_path_buf();
+                let child = if try!(dent.file_type()).is_dir() {
+                    Tree::Dir(name, vec![])
+                } else {
+                    Tree::File(name)
+                };
+                tree.last_dir_at(it.depth()).add(child);
+            }
+            Ok(tree)
+        }
+
+        fn last_dir_at(&mut self, depth: usize) -> &mut Tree {
+            if depth == 0 {
+                self
+            } else {
+                self.last().last_dir_at(depth - 1)
+            }
+        }
+
+        fn last(&mut self) -> &mut Tree {
+            match *self {
+                Tree::File(_) => panic!("cannot take last child of file"),
+                Tree::Dir(_, ref mut childs) => childs.last_mut().unwrap(),
+            }
+        }
+
+        fn unwrap_singleton(self) -> Tree {
+            match self {
+                Tree::File(_) => panic!("cannot unwrap file as dir"),
+                Tree::Dir(_, mut childs) => {
+                    assert_eq!(childs.len(), 1);
+                    childs.pop().unwrap()
+                }
+            }
+        }
+
+        fn add(&mut self, tree: Tree) {
+            match *self {
+                Tree::File(_) => panic!("cannot add child to file"),
+                Tree::Dir(_, ref mut childs) => childs.push(tree),
+            }
+        }
+
+        fn create_in<P: AsRef<Path>>(&self, parent: P) -> io::Result<()> {
+            let parent = parent.as_ref();
+            match *self {
+                Tree::File(ref p) => { try!(File::create(parent.join(p))); }
+                Tree::Dir(ref dir, ref children) => {
+                    try!(fs::create_dir(parent.join(dir)));
+                    for child in children {
+                        try!(child.create_in(parent.join(dir)));
+                    }
+                }
+            }
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn walk_dir() {
+        let tree = Tree::Dir(p("foo"), vec![Tree::File(p("bar"))]);
+        let tmpdir = tmpdir();
+        tree.create_in(tmpdir.path()).unwrap();
+        let got = Tree::from_walk(tmpdir.path()).unwrap().unwrap_singleton();
+        assert_eq!(tree, got);
+    }
+
+    #[test]
+    fn file_test_walk_dir() {
+        let tmpdir = tmpdir();
+        let dir = &tmpdir.join("walk_dir");
+        fs::create_dir(dir).unwrap();
+
+        let dir1 = &dir.join("01/02/03");
+        fs::create_dir_all(dir1).unwrap();
+        File::create(&dir1.join("04")).unwrap();
+
+        let dir2 = &dir.join("11/12/13");
+        fs::create_dir_all(dir2).unwrap();
+        File::create(&dir2.join("14")).unwrap();
+
+        let mut cur = [0; 2];
+        for f in WalkDir::new(dir) {
+            let f = f.unwrap().path();
+            let stem = f.file_stem().unwrap().to_str().unwrap();
+            let root = stem.as_bytes()[0] - b'0';
+            let name = stem.as_bytes()[1] - b'0';
+            assert!(cur[root as usize] < name);
+            cur[root as usize] = name;
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
 }

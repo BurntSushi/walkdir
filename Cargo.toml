@@ -15,4 +15,5 @@ libc = "0.1"
 
 [dev-dependencies]
 docopt = "0.6"
+rand = "0.3"
 rustc-serialize = "0.3"

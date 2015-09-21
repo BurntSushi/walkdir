@@ -7,7 +7,7 @@ extern crate walkdir;
 use std::fs;
 
 use docopt::Docopt;
-use walkdir::WalkDirBuilder;
+use walkdir::WalkDir;
 
 const USAGE: &'static str = "
 Usage:
@@ -21,6 +21,7 @@ Options:
     --min-depth NUM      Minimum depth.
     --max-depth NUM      Maximum depth.
     -n, --fd-max NUM     Maximum open file descriptors. [default: 32]
+    --tree               Show output as a tree.
 ";
 
 #[derive(Debug, RustcDecodable)]
@@ -33,6 +34,7 @@ struct Args {
     flag_max_depth: Option<usize>,
     flag_fd_max: usize,
     flag_depth: bool,
+    flag_tree: bool,
 }
 
 fn main() {
@@ -51,19 +53,33 @@ fn main() {
 
     let mind = args.flag_min_depth.unwrap_or(0);
     let maxd = args.flag_max_depth.unwrap_or(::std::usize::MAX);
-    let mut it = WalkDirBuilder::new(args.arg_dir.unwrap_or(".".to_owned()))
-                                .max_open(args.flag_fd_max)
-                                .follow_links(args.flag_follow_links)
-                                .contents_first(args.flag_depth)
-                                .min_depth(mind)
-                                .max_depth(maxd)
-                                .into_iter();
-    loop {
-        let dent = match it.next() {
-            None => break,
-            Some(Err(err)) => { println!("ERROR: {}", err); continue }
-            Some(Ok(dent)) => dent,
-        };
-        println!("{}", dent.path().display());
+    let mut it = WalkDir::new(args.arg_dir.unwrap_or(".".to_owned()))
+                         .max_open(args.flag_fd_max)
+                         .follow_links(args.flag_follow_links)
+                         .contents_first(args.flag_depth)
+                         .min_depth(mind)
+                         .max_depth(maxd)
+                         .into_iter();
+    if args.flag_tree {
+        loop {
+            let dent = match it.next() {
+                None => break,
+                Some(Err(err)) => { println!("ERROR: {}", err); continue }
+                Some(Ok(dent)) => dent,
+            };
+            let name = dent.file_name().into_string().unwrap();
+            println!("{}{}", indent(it.depth()), name);
+        }
+    } else {
+        for dent in it {
+            match dent {
+                Ok(dent) => println!("{}", dent.path().display()),
+                Err(err) => println!("ERROR: {}", err),
+            }
+        }
     }
+}
+
+fn indent(depth: usize) -> String {
+    ::std::iter::repeat(' ').take(2 * depth).collect()
 }
