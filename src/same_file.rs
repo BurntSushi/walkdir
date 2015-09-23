@@ -1,4 +1,3 @@
-use std::fs;
 use std::io;
 use std::path::Path;
 
@@ -22,7 +21,9 @@ pub fn is_same_file<P, Q>(
     p2: Q,
 ) -> io::Result<bool>
 where P: AsRef<Path>, Q: AsRef<Path> {
+    use std::fs;
     use std::os::unix::fs::MetadataExt;
+
     let md1 = try!(fs::metadata(p1));
     let md2 = try!(fs::metadata(p2));
     Ok((md1.dev(), md1.ino()) == (md2.dev(), md2.ino()))
@@ -34,27 +35,23 @@ pub fn is_same_file<P, Q>(
     p2: Q,
 ) -> io::Result<bool>
 where P: AsRef<Path>, Q: AsRef<Path> {
-    // My hope is that most of this gets moved/deleted by reusing code in
-    // `sys::windows`.
-    extern crate libc;
-
-    use std::fs::File;
-    use std::mem;
     use std::ops::{Deref, Drop};
     use std::os::windows::prelude::*;
     use std::ptr;
 
-    struct Handle(RawHandle);
+    use libc::{self, HANDLE};
+
+    struct Handle(HANDLE);
 
     impl Drop for Handle {
         fn drop(&mut self) {
-            unsafe { let _ = libc::CloseHandle(mem::transmute(self.0)); }
+            unsafe { let _ = libc::CloseHandle(self.0); }
         }
     }
 
     impl Deref for Handle {
-        type Target = RawHandle;
-        fn deref(&self) -> &RawHandle { &self.0 }
+        type Target = HANDLE;
+        fn deref(&self) -> &HANDLE { &self.0 }
     }
 
     #[repr(C)]
@@ -80,7 +77,7 @@ where P: AsRef<Path>, Q: AsRef<Path> {
         #[link(name = "userenv")]
         extern "system" {
             fn GetFileInformationByHandle(
-                hFile: RawHandle,
+                hFile: HANDLE,
                 lpFileInformation: LPBY_HANDLE_FILE_INFORMATION,
             ) -> libc::BOOL;
         }
@@ -96,10 +93,7 @@ where P: AsRef<Path>, Q: AsRef<Path> {
     }
 
     fn open_read_attr<P: AsRef<Path>>(p: P) -> io::Result<Handle> {
-        // Can openfully use OpenOptions in sys::windows. ---AG
-        // All of these options should be the default as per
-        // sys::windows::fs::OpenOptions except for `flags_and_attributes`.
-        // In particular, according to MSDN, `FILE_FLAG_BACKUP_SEMANTICS`
+        // According to MSDN, `FILE_FLAG_BACKUP_SEMANTICS`
         // must be set in order to get a handle to a directory:
         // https://msdn.microsoft.com/en-us/library/windows/desktop/aa363858(v=vs.85).aspx
         let h = unsafe {
@@ -117,7 +111,7 @@ where P: AsRef<Path>, Q: AsRef<Path> {
         if h == libc::INVALID_HANDLE_VALUE {
             Err(io::Error::last_os_error())
         } else {
-            Ok(Handle(unsafe { mem::transmute(h) }))
+            Ok(Handle(h))
         }
     }
 
@@ -157,11 +151,26 @@ where P: AsRef<Path>, Q: AsRef<Path> {
     // All said and done, checking whether two files are the same on Windows
     // seems quite tricky. Moreover, even if the code is technically incorrect,
     // it seems like the chances of actually observing incorrect behavior are
-    // extremely small.
+    // extremely small. Nevertheless, we mitigate this by checking size too.
+    //
+    // In the case where this code is erroneous, two files will be reported
+    // as equivalent when they are in fact distinct. This will cause the loop
+    // detection code to report a false positive, which will prevent descending
+    // into the offending directory.
     let h1 = try!(open_read_attr(&p1));
     let h2 = try!(open_read_attr(&p2));
     let i1 = try!(file_info(&h1));
     let i2 = try!(file_info(&h2));
-    Ok((i1.dwVolumeSerialNumber, i1.nFileIndexHigh, i1.nFileIndexLow)
-       == (i2.dwVolumeSerialNumber, i2.nFileIndexHigh, i2.nFileIndexLow))
+
+    let k1 = (
+        i1.dwVolumeSerialNumber,
+        i1.nFileIndexHigh, i1.nFileIndexLow,
+        i1.nFileSizeHigh, i1.nFileSizeLow,
+    );
+    let k2 = (
+        i2.dwVolumeSerialNumber,
+        i2.nFileIndexHigh, i2.nFileIndexLow,
+        i2.nFileSizeHigh, i2.nFileSizeLow,
+    );
+    Ok(k1 == k2)
 }

@@ -1,15 +1,21 @@
+#[cfg(windows)] extern crate libc;
+#[cfg(test)] extern crate quickcheck;
+#[cfg(test)] extern crate rand;
+
 use std::cmp::min;
 use std::borrow::Cow;
 use std::error;
 use std::fmt;
-use std::fs::{self, DirEntry, ReadDir};
+use std::fs::{self, ReadDir};
 use std::io;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::vec;
 
 use same_file::is_same_file;
 
 mod same_file;
+#[cfg(test)] mod tests;
 
 /// Create an iterator to recursively walk a directory.
 pub struct WalkDir<P> {
@@ -94,6 +100,13 @@ pub struct WalkDirIter {
     depth: usize,
 }
 
+pub struct DirEntry(DirEntryInner);
+
+enum DirEntryInner {
+    Raw(fs::DirEntry),
+    Meta { path: PathBuf, meta: fs::Metadata },
+}
+
 struct StackEntry {
     dir: Dir,
     list: DirList,
@@ -141,10 +154,10 @@ impl Iterator for WalkDirIter {
         }
         while !self.stack.is_empty() {
             self.depth = self.stack.len() - 1;
-            let dent = match self.stack.last_mut().and_then(|v| v.next()) {
+            let mut dent = match self.stack.last_mut().and_then(|v| v.next()) {
                 None => {
                     if let Dir::Entry(dent) = self.pop().dir {
-                        self.depth -= 1;
+                        self.depth = self.depth.saturating_sub(1);
                         skip!(self, Some(Ok(dent)));
                     } else {
                         continue;
@@ -161,7 +174,8 @@ impl Iterator for WalkDirIter {
                     skip!(self, Some(Ok(dent)));
                 } else {
                     let p = dent.path();
-                    ty = walk_try!(dent, fs::metadata(&p)).file_type();
+                    dent = walk_try!(dent, DirEntry::from_path(&p));
+                    ty = walk_try!(dent, dent.file_type());
                     assert!(!ty.is_symlink());
                     // The only way a symlink can cause a loop is if it points
                     // to a directory. Otherwise, it always points to a leaf
@@ -295,12 +309,71 @@ impl Iterator for StackEntry {
                 Err(ref mut err) => err.take().map(Err),
                 Ok(ref mut rd) => match rd.next() {
                     None => None,
-                    Some(Ok(dent)) => Some(Ok(dent)),
+                    Some(Ok(dent)) => Some(Ok(dent.into())),
                     Some(Err(err)) => {
                         let p = self.dir.path().to_path_buf();
                         Some(Err(WalkDirError::from_io(p, err)))
                     }
                 }
+            }
+        }
+    }
+}
+
+impl DirEntry {
+    pub fn path(&self) -> PathBuf {
+        match self.0 {
+            DirEntryInner::Raw(ref dent) => dent.path(),
+            DirEntryInner::Meta { ref path, .. } => path.clone(),
+        }
+    }
+
+    pub fn metadata(&self) -> io::Result<fs::Metadata> {
+        match self.0 {
+            DirEntryInner::Raw(ref dent) => dent.metadata(),
+            DirEntryInner::Meta { ref path, .. } => fs::metadata(path),
+        }
+    }
+
+    pub fn file_type(&self) -> io::Result<fs::FileType> {
+        match self.0 {
+            DirEntryInner::Raw(ref dent) => dent.file_type(),
+            DirEntryInner::Meta { ref meta, .. } => Ok(meta.file_type()),
+        }
+    }
+
+    pub fn file_name(&self) -> OsString {
+        match self.0 {
+            DirEntryInner::Raw(ref dent) => dent.file_name(),
+            DirEntryInner::Meta { ref path, .. } => {
+                // We never create dir entries with "." or "..", so `file_name`
+                // is only `None` when the path is `/`.
+                path.file_name().unwrap_or(OsStr::new("")).to_os_string()
+            }
+        }
+    }
+
+    fn from_path<P: AsRef<Path>>(p: P) -> io::Result<DirEntry> {
+        let pb = p.as_ref().to_path_buf();
+        let md = try!(fs::metadata(&pb));
+        Ok(DirEntry(DirEntryInner::Meta { path: pb, meta: md }))
+    }
+}
+
+impl From<fs::DirEntry> for DirEntry {
+    fn from(dent: fs::DirEntry) -> DirEntry {
+        DirEntry(DirEntryInner::Raw(dent))
+    }
+}
+
+impl fmt::Debug for DirEntry {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.0 {
+            DirEntryInner::Raw(ref dent) => {
+                write!(f, "DirEntry({:?})", dent.path())
+            }
+            DirEntryInner::Meta { ref path, .. } => {
+                write!(f, "DirEntry({:?})", path)
             }
         }
     }
@@ -368,158 +441,5 @@ impl From<WalkDirError> for io::Error {
                 io::Error::new(io::ErrorKind::Other, err)
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #![allow(dead_code, unused_imports)]
-
-    extern crate rand;
-
-    use std::env;
-    use std::fs::{self, File};
-    use std::io;
-    use std::path::{Path, PathBuf};
-
-    use self::rand::Rng;
-
-    use super::{WalkDir, WalkDirError};
-
-    struct TempDir(PathBuf);
-
-    impl TempDir {
-        fn join(&self, path: &str) -> PathBuf {
-            (&*self.0).join(path)
-        }
-
-        fn path<'a>(&'a self) -> &'a Path {
-            &self.0
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            fs::remove_dir_all(&self.0).unwrap();
-        }
-    }
-
-    fn tmpdir() -> TempDir {
-        let p = env::temp_dir();
-        let mut r = rand::thread_rng();
-        let ret = p.join(&format!("rust-{}", r.next_u32()));
-        fs::create_dir(&ret).unwrap();
-        TempDir(ret)
-    }
-
-    fn p<P: AsRef<Path>>(path: P) -> PathBuf { path.as_ref().to_path_buf() }
-
-    #[derive(Debug, Eq, PartialEq)]
-    enum Tree {
-        Dir(PathBuf, Vec<Tree>),
-        File(PathBuf),
-    }
-
-    impl Tree {
-        fn from_walk<P: AsRef<Path>>(root: P) -> io::Result<Tree> {
-            let mut tree = Tree::Dir(root.as_ref().to_path_buf(), vec![]);
-            let mut it = WalkDir::new(root).into_iter();
-            loop {
-                let dent = match it.next() {
-                    None => break,
-                    Some(dent) => try!(dent),
-                };
-                let name =
-                    AsRef::<Path>::as_ref(&dent.file_name()).to_path_buf();
-                let child = if try!(dent.file_type()).is_dir() {
-                    Tree::Dir(name, vec![])
-                } else {
-                    Tree::File(name)
-                };
-                tree.last_dir_at(it.depth()).add(child);
-            }
-            Ok(tree)
-        }
-
-        fn last_dir_at(&mut self, depth: usize) -> &mut Tree {
-            if depth == 0 {
-                self
-            } else {
-                self.last().last_dir_at(depth - 1)
-            }
-        }
-
-        fn last(&mut self) -> &mut Tree {
-            match *self {
-                Tree::File(_) => panic!("cannot take last child of file"),
-                Tree::Dir(_, ref mut childs) => childs.last_mut().unwrap(),
-            }
-        }
-
-        fn unwrap_singleton(self) -> Tree {
-            match self {
-                Tree::File(_) => panic!("cannot unwrap file as dir"),
-                Tree::Dir(_, mut childs) => {
-                    assert_eq!(childs.len(), 1);
-                    childs.pop().unwrap()
-                }
-            }
-        }
-
-        fn add(&mut self, tree: Tree) {
-            match *self {
-                Tree::File(_) => panic!("cannot add child to file"),
-                Tree::Dir(_, ref mut childs) => childs.push(tree),
-            }
-        }
-
-        fn create_in<P: AsRef<Path>>(&self, parent: P) -> io::Result<()> {
-            let parent = parent.as_ref();
-            match *self {
-                Tree::File(ref p) => { try!(File::create(parent.join(p))); }
-                Tree::Dir(ref dir, ref children) => {
-                    try!(fs::create_dir(parent.join(dir)));
-                    for child in children {
-                        try!(child.create_in(parent.join(dir)));
-                    }
-                }
-            }
-            Ok(())
-        }
-    }
-
-    #[test]
-    fn walk_dir() {
-        let tree = Tree::Dir(p("foo"), vec![Tree::File(p("bar"))]);
-        let tmpdir = tmpdir();
-        tree.create_in(tmpdir.path()).unwrap();
-        let got = Tree::from_walk(tmpdir.path()).unwrap().unwrap_singleton();
-        assert_eq!(tree, got);
-    }
-
-    #[test]
-    fn file_test_walk_dir() {
-        let tmpdir = tmpdir();
-        let dir = &tmpdir.join("walk_dir");
-        fs::create_dir(dir).unwrap();
-
-        let dir1 = &dir.join("01/02/03");
-        fs::create_dir_all(dir1).unwrap();
-        File::create(&dir1.join("04")).unwrap();
-
-        let dir2 = &dir.join("11/12/13");
-        fs::create_dir_all(dir2).unwrap();
-        File::create(&dir2.join("14")).unwrap();
-
-        let mut cur = [0; 2];
-        for f in WalkDir::new(dir) {
-            let f = f.unwrap().path();
-            let stem = f.file_stem().unwrap().to_str().unwrap();
-            let root = stem.as_bytes()[0] - b'0';
-            let name = stem.as_bytes()[1] - b'0';
-            assert!(cur[root as usize] < name);
-            cur[root as usize] = name;
-        }
-        fs::remove_dir_all(dir).unwrap();
     }
 }
