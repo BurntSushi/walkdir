@@ -85,7 +85,6 @@ impl Tree {
     }
 
     fn create_in<P: AsRef<Path>>(&self, parent: P) -> io::Result<()> {
-        println!("{:?}\n-------------------------", self);
         let parent = parent.as_ref();
         match *self {
             Tree::Symlink(ref src, ref dst) => {
