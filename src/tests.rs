@@ -11,7 +11,7 @@ use rand::{self, Rng};
 
 use super::{DirEntry, WalkDir, WalkDirError, WalkDirIter};
 
-#[derive(Clone, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum Tree {
     Dir(PathBuf, Vec<Tree>),
     File(PathBuf),
@@ -34,6 +34,9 @@ impl Tree {
             match try!(ev) {
                 WalkEvent::Exit => {
                     let tree = stack.pop().unwrap();
+                    if stack.is_empty() {
+                        return Ok(tree);
+                    }
                     stack.last_mut().unwrap().children_mut().push(tree);
                 }
                 WalkEvent::Dir(dent) => {
@@ -72,6 +75,15 @@ impl Tree {
                 assert_eq!(childs.len(), 1);
                 childs.pop().unwrap()
             }
+        }
+    }
+
+    fn unwrap_dir(self) -> Vec<Tree> {
+        match self {
+            Tree::File(_) | Tree::Symlink(_, _) => {
+                panic!("cannot unwrap file as dir");
+            }
+            Tree::Dir(_, childs) => childs,
         }
     }
 
@@ -210,6 +222,7 @@ impl Arbitrary for Tree {
     }
 }
 
+/*
 impl fmt::Debug for Tree {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fn rep(c: char, n: usize) -> String {
@@ -243,7 +256,9 @@ impl fmt::Debug for Tree {
         fmt(f, self, 0)
     }
 }
+*/
 
+#[derive(Debug)]
 enum WalkEvent {
     Dir(DirEntry),
     File(DirEntry),
@@ -272,6 +287,7 @@ impl Iterator for WalkEventIter {
             self.next = dent;
             return Some(Ok(WalkEvent::Exit));
         }
+        self.depth = self.it.depth();
         match dent {
             None => None,
             Some(Err(err)) => Some(Err(From::from(err))),
@@ -509,9 +525,128 @@ fn walk_dir_sym_infinite() {
 }
 
 #[test]
+fn walk_dir_min_depth_1() {
+    let exp = td("foo", vec![tf("bar")]);
+    let (_tmp, got) = dir_setup_with(&exp, |wd| wd.min_depth(1));
+    assert_tree_eq!(tf("bar"), got);
+}
+
+#[test]
+fn walk_dir_min_depth_2() {
+    let exp = td("foo", vec![tf("bar"), tf("baz")]);
+    let tmp = tmpdir();
+    exp.create_in(tmp.path()).unwrap();
+    let got = Tree::from_walk_with(tmp.path(), |wd| wd.min_depth(1))
+                   .unwrap().unwrap_dir();
+    assert_tree_eq!(exp, td("foo", got));
+}
+
+#[test]
+fn walk_dir_min_depth_3() {
+    let exp = td("foo", vec![
+        tf("bar"),
+        td("abc", vec![tf("xyz")]),
+        tf("baz"),
+    ]);
+    let tmp = tmpdir();
+    exp.create_in(tmp.path()).unwrap();
+    let got = Tree::from_walk_with(tmp.path(), |wd| wd.min_depth(2))
+                   .unwrap().unwrap_dir();
+    assert_eq!(vec![tf("xyz")], got);
+}
+
+#[test]
+fn walk_dir_max_depth_1() {
+    let exp = td("foo", vec![tf("bar")]);
+    let (_tmp, got) = dir_setup_with(&exp, |wd| wd.max_depth(0));
+    assert_tree_eq!(td("foo", vec![]), got);
+}
+
+#[test]
+fn walk_dir_max_depth_2() {
+    let exp = td("foo", vec![tf("bar"), tf("baz")]);
+    let (_tmp, got) = dir_setup_with(&exp, |wd| wd.max_depth(0));
+    assert_tree_eq!(td("foo", vec![]), got);
+}
+
+#[test]
+fn walk_dir_max_depth_3() {
+    let exp = td("foo", vec![
+        tf("bar"),
+        td("abc", vec![tf("xyz")]),
+        tf("baz"),
+    ]);
+    let exp_trimmed = td("foo", vec![
+        tf("bar"),
+        td("abc", vec![]),
+        tf("baz"),
+    ]);
+    let (_tmp, got) = dir_setup_with(&exp, |wd| wd.max_depth(1));
+    assert_tree_eq!(exp_trimmed, got);
+}
+
+#[test]
+fn walk_dir_min_max_depth() {
+    let exp = td("foo", vec![
+        tf("bar"),
+        td("abc", vec![tf("xyz")]),
+        tf("baz"),
+    ]);
+    let tmp = tmpdir();
+    exp.create_in(tmp.path()).unwrap();
+    let got = Tree::from_walk_with(tmp.path(),
+                                   |wd| wd.min_depth(1).max_depth(1))
+                   .unwrap().unwrap_dir();
+    assert_tree_eq!(
+        td("foo", vec![tf("bar"), td("abc", vec![]), tf("baz")]),
+        td("foo", got));
+}
+
+#[test]
+fn walk_dir_skip() {
+    let exp = td("foo", vec![
+        tf("bar"),
+        td("abc", vec![tf("xyz")]),
+        tf("baz"),
+    ]);
+    let tmp = tmpdir();
+    exp.create_in(tmp.path()).unwrap();
+    let mut got = vec![];
+    let mut it = WalkDir::new(tmp.path()).into_iter();
+    loop {
+        let dent = match it.next().map(|x| x.unwrap()) {
+            None => break,
+            Some(dent) => dent,
+        };
+        let name = dent.file_name().into_string().unwrap();
+        if name == "abc" {
+            it.skip_current_dir();
+        }
+        got.push(name);
+    }
+    got.sort();
+    assert_eq!(got, vec!["abc", "bar", "baz", "foo"]); // missing xyz!
+}
+
+#[test]
 fn qc_roundtrip() {
     fn p(exp: Tree) -> bool {
         let (_tmp, got) = dir_setup(&exp);
+        exp.canonical() == got.canonical()
+    }
+    QuickCheck::new()
+               .gen(StdGen::new(rand::thread_rng(), 15))
+               .tests(1_000)
+               .max_tests(10_000)
+               .quickcheck(p as fn(Tree) -> bool);
+}
+
+// Same as `qc_roundtrip`, but makes sure `follow_links` doesn't change
+// the behavior of walking a directory *without* symlinks.
+#[test]
+fn qc_roundtrip_no_symlinks_with_follow() {
+    fn p(exp: Tree) -> bool {
+        let (_tmp, got) = dir_setup_with(&exp, |wd| wd.follow_links(true));
         exp.canonical() == got.canonical()
     }
     QuickCheck::new()
