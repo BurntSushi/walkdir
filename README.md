@@ -6,7 +6,7 @@ open file descriptors and efficient mechanisms for pruning the entries in the
 directory tree.
 
 [![Linux build status](https://api.travis-ci.org/BurntSushi/walkdir.png)](https://travis-ci.org/BurntSushi/walkdir)
-[![Windows build status](https://ci.appveyor.com/api/projects/status/github/BurntSushi/walkdir)](https://ci.appveyor.com/project/BurntSushi/walkdir)
+[![Windows build status](https://ci.appveyor.com/api/projects/status/github/BurntSushi/walkdir?svg=true)](https://ci.appveyor.com/project/BurntSushi/walkdir)
 [![](http://meritbadge.herokuapp.com/walkdir)](https://crates.io/crates/walkdir)
 
 Dual-licensed under MIT or the [UNLICENSE](http://unlicense.org).
