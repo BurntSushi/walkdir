@@ -120,10 +120,10 @@ DIR=$HOME
 sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'
 
 # To warm the caches
-find $HOME
+find $DIR
 
 # Test speed of `find` on warm cache:
-time find $HOME
+time find $DIR
 
 # Compile and test speed of `walkdir` crate:
 cargo build --release --example walkdir
