@@ -779,7 +779,9 @@ impl<I, P> Iterator for IterFilterEntry<I, P>
                 Some(result) => itry!(result),
             };
             if !(self.predicate)(&dent) {
-                self.it.skip_current_dir();
+                if dent.file_type().is_dir() {
+                    self.it.skip_current_dir();
+                }
                 continue;
             }
             return Some(Ok(dent));
