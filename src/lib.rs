@@ -488,6 +488,12 @@ impl Iterator for Iter {
         }
         while !self.stack_list.is_empty() {
             self.depth = self.stack_list.len();
+            if self.depth > self.opts.max_depth {
+                // If we've exceeded the max depth, pop the current dir
+                // so that we don't descend.
+                self.pop();
+                continue;
+            }
             match self.stack_list.last_mut().unwrap().next() {
                 None => self.pop(),
                 Some(Err(err)) => return Some(Err(err)),
@@ -522,7 +528,7 @@ impl Iter {
         if self.opts.follow_links && dent.file_type().is_symlink() {
             dent = itry!(self.follow(dent));
         }
-        if dent.file_type().is_dir() && self.depth < self.opts.max_depth {
+        if dent.file_type().is_dir() {
             self.push(&dent);
         }
         if self.skippable() { None } else { Some(Ok(dent)) }
