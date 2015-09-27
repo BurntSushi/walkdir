@@ -1,9 +1,9 @@
 walkdir
 =======
 A cross platform Rust library for efficiently walking a directory recursively.
-Comes with support for following symbolic links, controlling the number of file
-descriptors and efficient mechanisms for pruning the entries in the directory
-tree.
+Comes with support for following symbolic links, controlling the number of
+open file descriptors and efficient mechanisms for pruning the entries in the
+directory tree.
 
 [![Build status](https://api.travis-ci.org/BurntSushi/walkdir.png)](https://travis-ci.org/BurntSushi/walkdir)
 [![](http://meritbadge.herokuapp.com/walkdir)](https://crates.io/crates/walkdir)
