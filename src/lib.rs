@@ -8,7 +8,7 @@ efficiently skip descending into directories.
 To use this crate, add `walkdir` as a dependency to your project's
 `Cargo.toml`:
 
-```
+```ignore
 [dependencies]
 walkdir = "0.1"
 ```
