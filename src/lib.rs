@@ -631,7 +631,7 @@ impl DirEntry {
     ///
     /// Note that this *always* returns the path reported by the underlying
     /// directory entry, even when symbolic links are followed. To get the
-    /// target path, use `file_type` and `followed_link` to (cheaply) check if
+    /// target path, use `path_is_symbolic_link` to (cheaply) check if
     /// this entry corresponds to a symbolic link, and `std::fs::read_link` to
     /// resolve the target.
     pub fn path(&self) -> &Path {
