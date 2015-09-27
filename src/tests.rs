@@ -1,7 +1,6 @@
-#![allow(dead_code, unused_imports)]
+#![cfg_attr(windows, allow(dead_code, unused_imports))]
 
 use std::env;
-use std::fmt;
 use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -9,7 +8,7 @@ use std::path::{Path, PathBuf};
 use quickcheck::{Arbitrary, Gen, QuickCheck, StdGen};
 use rand::{self, Rng};
 
-use super::{DirEntry, WalkDir, WalkDirError, WalkDirIter};
+use super::{DirEntry, WalkDir, WalkDirIterator, Iter, Error, ErrorInner};
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum Tree {
@@ -19,15 +18,11 @@ enum Tree {
 }
 
 impl Tree {
-    fn from_walk<P: AsRef<Path>>(p: P) -> io::Result<Tree> {
-        Tree::from_walk_with(p, |wd| wd)
-    }
-
     fn from_walk_with<P, F>(
         p: P,
         f: F,
     ) -> io::Result<Tree>
-    where P: AsRef<Path>, F: FnOnce(WalkDir<P>) -> WalkDir<P> {
+    where P: AsRef<Path>, F: FnOnce(WalkDir) -> WalkDir {
         let mut stack = vec![Tree::Dir(p.as_ref().to_path_buf(), vec![])];
         let it: WalkEventIter = f(WalkDir::new(p)).into();
         for ev in it {
@@ -43,7 +38,7 @@ impl Tree {
                     stack.push(Tree::Dir(pb(dent.file_name()), vec![]));
                 }
                 WalkEvent::File(dent) => {
-                    let node = if try!(dent.file_type()).is_symlink() {
+                    let node = if dent.file_type().is_symlink() {
                         let src = try!(fs::read_link(dent.path()));
                         let dst = pb(dent.file_name());
                         Tree::Symlink(src, dst)
@@ -222,42 +217,6 @@ impl Arbitrary for Tree {
     }
 }
 
-/*
-impl fmt::Debug for Tree {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fn rep(c: char, n: usize) -> String {
-            ::std::iter::repeat(c).take(n).collect()
-        }
-
-        fn fmt(
-            f: &mut fmt::Formatter,
-            tree: &Tree,
-            depth: usize,
-        ) -> fmt::Result {
-            match *tree {
-                Tree::File(ref pb) => {
-                    writeln!(f, "{}{}", rep(' ', 2 * depth), pb.display())
-                }
-                Tree::Symlink(ref src, ref dst) => {
-                    writeln!(f, "{}{} -> {}",
-                             rep(' ', 2 * depth),
-                             dst.display(), src.display())
-                }
-                Tree::Dir(ref pb, ref children) => {
-                    try!(writeln!(f, "{}{}",
-                                  rep(' ', 2 * depth), pb.display()));
-                    for c in children {
-                        try!(fmt(f, c, depth + 1));
-                    }
-                    Ok(())
-                }
-            }
-        }
-        fmt(f, self, 0)
-    }
-}
-*/
-
 #[derive(Debug)]
 enum WalkEvent {
     Dir(DirEntry),
@@ -267,12 +226,12 @@ enum WalkEvent {
 
 struct WalkEventIter {
     depth: usize,
-    it: WalkDirIter,
-    next: Option<Result<DirEntry, WalkDirError>>,
+    it: Iter,
+    next: Option<Result<DirEntry, Error>>,
 }
 
-impl<P: AsRef<Path>> From<WalkDir<P>> for WalkEventIter {
-    fn from(it: WalkDir<P>) -> WalkEventIter {
+impl From<WalkDir> for WalkEventIter {
+    fn from(it: WalkDir) -> WalkEventIter {
         WalkEventIter { depth: 0, it: it.into_iter(), next: None }
     }
 }
@@ -282,26 +241,26 @@ impl Iterator for WalkEventIter {
 
     fn next(&mut self) -> Option<io::Result<WalkEvent>> {
         let dent = self.next.take().or_else(|| self.it.next());
-        if self.it.depth() < self.depth {
+        let depth = match dent {
+            None => 0,
+            Some(Ok(ref dent)) => dent.depth(),
+            Some(Err(ref err)) => err.depth(),
+        };
+        if depth < self.depth {
             self.depth -= 1;
             self.next = dent;
             return Some(Ok(WalkEvent::Exit));
         }
-        self.depth = self.it.depth();
+        self.depth = depth;
         match dent {
             None => None,
             Some(Err(err)) => Some(Err(From::from(err))),
             Some(Ok(dent)) => {
-                match dent.file_type() {
-                    Err(err) => Some(Err(err)),
-                    Ok(ty) => {
-                        if ty.is_dir() {
-                            self.depth += 1;
-                            Some(Ok(WalkEvent::Dir(dent)))
-                        } else {
-                            Some(Ok(WalkEvent::File(dent)))
-                        }
-                    }
+                if dent.file_type().is_dir() {
+                    self.depth += 1;
+                    Some(Ok(WalkEvent::Dir(dent)))
+                } else {
+                    Some(Ok(WalkEvent::File(dent)))
                 }
             }
         }
@@ -311,10 +270,6 @@ impl Iterator for WalkEventIter {
 struct TempDir(PathBuf);
 
 impl TempDir {
-    fn join(&self, path: &str) -> PathBuf {
-        (&*self.0).join(path)
-    }
-
     fn path<'a>(&'a self) -> &'a Path {
         &self.0
     }
@@ -335,11 +290,11 @@ fn tmpdir() -> TempDir {
 }
 
 fn dir_setup_with<F>(t: &Tree, f: F) -> (TempDir, Tree)
-        where F: FnOnce(WalkDir<&Path>) -> WalkDir<&Path> {
+        where F: FnOnce(WalkDir) -> WalkDir {
     let tmp = tmpdir();
     t.create_in(tmp.path()).unwrap();
     let got = Tree::from_walk_with(tmp.path(), f).unwrap();
-    (tmp, got.unwrap_singleton())
+    (tmp, got.unwrap_singleton().unwrap_singleton())
 }
 
 fn dir_setup(t: &Tree) -> (TempDir, Tree) {
@@ -366,6 +321,10 @@ fn soft_link<P: AsRef<Path>, Q: AsRef<Path>>(
     symlink(src, dst)
 }
 
+// TODO: Figure out how to do symlinks on windows.
+// Windows differentiates dir and file symlinks.
+// We may need to tweak the `Tree` data type to
+// split links into dir/file.
 #[cfg(windows)]
 fn soft_link<P: AsRef<Path>, Q: AsRef<Path>>(
     _src: P,
@@ -498,10 +457,10 @@ fn walk_dir_sym_detect_loop() {
                       .collect::<Result<Vec<_>, _>>();
     match got {
         Ok(x) => panic!("expected loop error, got no error: {:?}", x),
-        Err(WalkDirError::Io { .. }) => {
+        Err(Error { inner: ErrorInner::Io { .. }, .. }) => {
             panic!("expected loop error, got generic IO error");
         }
-        Err(WalkDirError::Loop { .. }) => {}
+        Err(Error { inner: ErrorInner::Loop { .. }, .. }) => {}
     }
 }
 
@@ -517,10 +476,10 @@ fn walk_dir_sym_infinite() {
                       .collect::<Result<Vec<_>, _>>();
     match got {
         Ok(x) => panic!("expected IO error, got no error: {:?}", x),
-        Err(WalkDirError::Loop { .. }) => {
+        Err(Error { inner: ErrorInner::Loop { .. }, .. }) => {
             panic!("expected IO error, but got loop error");
         }
-        Err(WalkDirError::Io { .. }) => {}
+        Err(Error { inner: ErrorInner::Io { .. }, .. }) => {}
     }
 }
 
@@ -536,7 +495,7 @@ fn walk_dir_min_depth_2() {
     let exp = td("foo", vec![tf("bar"), tf("baz")]);
     let tmp = tmpdir();
     exp.create_in(tmp.path()).unwrap();
-    let got = Tree::from_walk_with(tmp.path(), |wd| wd.min_depth(1))
+    let got = Tree::from_walk_with(tmp.path(), |wd| wd.min_depth(2))
                    .unwrap().unwrap_dir();
     assert_tree_eq!(exp, td("foo", got));
 }
@@ -550,7 +509,7 @@ fn walk_dir_min_depth_3() {
     ]);
     let tmp = tmpdir();
     exp.create_in(tmp.path()).unwrap();
-    let got = Tree::from_walk_with(tmp.path(), |wd| wd.min_depth(2))
+    let got = Tree::from_walk_with(tmp.path(), |wd| wd.min_depth(3))
                    .unwrap().unwrap_dir();
     assert_eq!(vec![tf("xyz")], got);
 }
@@ -558,14 +517,14 @@ fn walk_dir_min_depth_3() {
 #[test]
 fn walk_dir_max_depth_1() {
     let exp = td("foo", vec![tf("bar")]);
-    let (_tmp, got) = dir_setup_with(&exp, |wd| wd.max_depth(0));
+    let (_tmp, got) = dir_setup_with(&exp, |wd| wd.max_depth(1));
     assert_tree_eq!(td("foo", vec![]), got);
 }
 
 #[test]
 fn walk_dir_max_depth_2() {
     let exp = td("foo", vec![tf("bar"), tf("baz")]);
-    let (_tmp, got) = dir_setup_with(&exp, |wd| wd.max_depth(0));
+    let (_tmp, got) = dir_setup_with(&exp, |wd| wd.max_depth(1));
     assert_tree_eq!(td("foo", vec![]), got);
 }
 
@@ -581,7 +540,7 @@ fn walk_dir_max_depth_3() {
         td("abc", vec![]),
         tf("baz"),
     ]);
-    let (_tmp, got) = dir_setup_with(&exp, |wd| wd.max_depth(1));
+    let (_tmp, got) = dir_setup_with(&exp, |wd| wd.max_depth(2));
     assert_tree_eq!(exp_trimmed, got);
 }
 
@@ -595,7 +554,7 @@ fn walk_dir_min_max_depth() {
     let tmp = tmpdir();
     exp.create_in(tmp.path()).unwrap();
     let got = Tree::from_walk_with(tmp.path(),
-                                   |wd| wd.min_depth(1).max_depth(1))
+                                   |wd| wd.min_depth(2).max_depth(2))
                    .unwrap().unwrap_dir();
     assert_tree_eq!(
         td("foo", vec![tf("bar"), td("abc", vec![]), tf("baz")]),
@@ -612,13 +571,13 @@ fn walk_dir_skip() {
     let tmp = tmpdir();
     exp.create_in(tmp.path()).unwrap();
     let mut got = vec![];
-    let mut it = WalkDir::new(tmp.path()).into_iter();
+    let mut it = WalkDir::new(tmp.path()).min_depth(1).into_iter();
     loop {
         let dent = match it.next().map(|x| x.unwrap()) {
             None => break,
             Some(dent) => dent,
         };
-        let name = dent.file_name().into_string().unwrap();
+        let name = dent.file_name().to_str().unwrap().to_owned();
         if name == "abc" {
             it.skip_current_dir();
         }
@@ -626,6 +585,30 @@ fn walk_dir_skip() {
     }
     got.sort();
     assert_eq!(got, vec!["abc", "bar", "baz", "foo"]); // missing xyz!
+}
+
+#[test]
+fn walk_dir_filter() {
+    let exp = td("foo", vec![
+        tf("bar"),
+        td("abc", vec![tf("fit")]),
+        tf("faz"),
+    ]);
+    let tmp = tmpdir();
+    let tmp_path = tmp.path().to_path_buf();
+    exp.create_in(tmp.path()).unwrap();
+    let it = WalkDir::new(tmp.path()).min_depth(1)
+                     .into_iter()
+                     .filter_entry(move |d| {
+                         let n = d.file_name().to_string_lossy().into_owned();
+                         !d.file_type().is_dir()
+                         || n.starts_with("f")
+                         || d.path() == &*tmp_path
+                     });
+    let mut got = it.map(|d| d.unwrap().file_name().to_str().unwrap().into())
+                    .collect::<Vec<String>>();
+    got.sort();
+    assert_eq!(got, vec!["bar", "faz", "foo"]);
 }
 
 #[test]

@@ -8,7 +8,7 @@ homepage = "https://github.com/BurntSushi/walkdir"
 repository = "https://github.com/BurntSushi/walkdir"
 readme = "README.md"
 keywords = ["directory", "recursive", "walk", "iterator"]
-license = "MIT/Apache-2.0"
+license = "Unlicense/MIT"
 
 [dependencies]
 libc = "0.1"

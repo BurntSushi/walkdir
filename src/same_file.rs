@@ -1,9 +1,9 @@
 use std::io;
 use std::path::Path;
 
-// Below are platform specific functions for testing the equality of two
-// files. Namely, we want to know whether the two paths points to precisely
-// the same underlying file object.
+// Below are platform specific functions for testing the equality of two files.
+// Namely, we want to know whether two paths points to precisely the same
+// underlying file object.
 //
 // In our particular use case, the paths should only be directories. If we're
 // assuming that directories cannot be hard linked, then it seems like equality
@@ -11,7 +11,8 @@ use std::path::Path;
 //
 // I'd also note that other popular libraries (Java's NIO and Boost) expose
 // a function like `is_same_file` whose implementation is similar. (i.e., check
-// dev/inode on Unix and check `nFileIndex{High,Low}` on Windows.)
+// dev/inode on Unix and check `nFileIndex{High,Low}` on Windows.) So this may
+// be a candidate for extracting into a separate crate.
 //
 // ---AG
 
@@ -119,9 +120,9 @@ where P: AsRef<Path>, Q: AsRef<Path> {
         s.as_os_str().encode_wide().chain(Some(0)).collect()
     }
 
-    // For correctness, it is critical that both file handles remain open
-    // while their attributes are checked for equality. In particular,
-    // the file index numbers are not guaranteed to remain stable over time.
+    // For correctness, it is critical that both file handles remain open while
+    // their attributes are checked for equality. In particular, the file index
+    // numbers are not guaranteed to remain stable over time.
     //
     // See the docs and remarks on MSDN:
     // https://msdn.microsoft.com/en-us/library/windows/desktop/aa363788(v=vs.85).aspx
@@ -133,8 +134,8 @@ where P: AsRef<Path>, Q: AsRef<Path> {
     // https://msdn.microsoft.com/en-us/library/windows/desktop/hh802691(v=vs.85).aspx
     //
     // It seems straight-forward enough to modify this code to use
-    // `FILE_ID_INFO` when available (minimum Windows Server 2012), but
-    // I don't have access to such Windows machines.
+    // `FILE_ID_INFO` when available (minimum Windows Server 2012), but I don't
+    // have access to such Windows machines.
     //
     // Two notes.
     //
@@ -144,7 +145,7 @@ where P: AsRef<Path>, Q: AsRef<Path> {
     //    `nFileIndex{Low,High}` are not unique.
     //
     // 2. LLVM has a bug where they fetch the id of a file and continue to use
-    //    it even after the file has been closed, so that uniqueness is no
+    //    it even after the handle has been closed, so that uniqueness is no
     //    longer guaranteed (when `nFileIndex{Low,High}` are unique).
     //    bug report: http://lists.llvm.org/pipermail/llvm-bugs/2014-December/037218.html
     //
@@ -156,7 +157,8 @@ where P: AsRef<Path>, Q: AsRef<Path> {
     // In the case where this code is erroneous, two files will be reported
     // as equivalent when they are in fact distinct. This will cause the loop
     // detection code to report a false positive, which will prevent descending
-    // into the offending directory.
+    // into the offending directory. As far as failure modes goes, this isn't
+    // that bad.
     let h1 = try!(open_read_attr(&p1));
     let h2 = try!(open_read_attr(&p2));
     let i1 = try!(file_info(&h1));
