@@ -84,7 +84,8 @@ for entry in walker.filter_entry(|e| !is_hidden(e)) {
 ```
 
 */
-#[cfg(windows)] extern crate libc;
+#[cfg(windows)] extern crate kernel32;
+#[cfg(windows)] extern crate winapi;
 #[cfg(test)] extern crate quickcheck;
 #[cfg(test)] extern crate rand;
 

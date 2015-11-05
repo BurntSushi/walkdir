@@ -40,13 +40,14 @@ where P: AsRef<Path>, Q: AsRef<Path> {
     use std::os::windows::prelude::*;
     use std::ptr;
 
-    use libc::{self, HANDLE};
+    use kernel32;
+    use winapi::{self, HANDLE};
 
     struct Handle(HANDLE);
 
     impl Drop for Handle {
         fn drop(&mut self) {
-            unsafe { let _ = libc::CloseHandle(self.0); }
+            unsafe { let _ = kernel32::CloseHandle(self.0); }
         }
     }
 
@@ -58,16 +59,16 @@ where P: AsRef<Path>, Q: AsRef<Path> {
     #[repr(C)]
     #[allow(non_snake_case)]
     struct BY_HANDLE_FILE_INFORMATION {
-        dwFileAttributes: libc::DWORD,
-        ftCreationTime: libc::FILETIME,
-        ftLastAccessTime: libc::FILETIME,
-        ftLastWriteTime: libc::FILETIME,
-        dwVolumeSerialNumber: libc::DWORD,
-        nFileSizeHigh: libc::DWORD,
-        nFileSizeLow: libc::DWORD,
-        nNumberOfLinks: libc::DWORD,
-        nFileIndexHigh: libc::DWORD,
-        nFileIndexLow: libc::DWORD,
+        dwFileAttributes: winapi::DWORD,
+        ftCreationTime: winapi::FILETIME,
+        ftLastAccessTime: winapi::FILETIME,
+        ftLastWriteTime: winapi::FILETIME,
+        dwVolumeSerialNumber: winapi::DWORD,
+        nFileSizeHigh: winapi::DWORD,
+        nFileSizeLow: winapi::DWORD,
+        nNumberOfLinks: winapi::DWORD,
+        nFileIndexHigh: winapi::DWORD,
+        nFileIndexLow: winapi::DWORD,
     }
 
     #[allow(non_camel_case_types)]
@@ -80,7 +81,7 @@ where P: AsRef<Path>, Q: AsRef<Path> {
             fn GetFileInformationByHandle(
                 hFile: HANDLE,
                 lpFileInformation: LPBY_HANDLE_FILE_INFORMATION,
-            ) -> libc::BOOL;
+            ) -> winapi::BOOL;
         }
 
         unsafe {
@@ -98,18 +99,18 @@ where P: AsRef<Path>, Q: AsRef<Path> {
         // must be set in order to get a handle to a directory:
         // https://msdn.microsoft.com/en-us/library/windows/desktop/aa363858(v=vs.85).aspx
         let h = unsafe {
-            libc::CreateFileW(
+            kernel32::CreateFileW(
                 to_utf16(p.as_ref()).as_ptr(),
                 0,
-                libc::FILE_SHARE_READ
-                | libc::FILE_SHARE_WRITE
-                | libc::FILE_SHARE_DELETE,
+                winapi::FILE_SHARE_READ
+                | winapi::FILE_SHARE_WRITE
+                | winapi::FILE_SHARE_DELETE,
                 ptr::null_mut(),
-                libc::OPEN_EXISTING,
-                libc::FILE_FLAG_BACKUP_SEMANTICS,
+                winapi::OPEN_EXISTING,
+                winapi::FILE_FLAG_BACKUP_SEMANTICS,
                 ptr::null_mut())
         };
-        if h == libc::INVALID_HANDLE_VALUE {
+        if h == winapi::INVALID_HANDLE_VALUE {
             Err(io::Error::last_os_error())
         } else {
             Ok(Handle(h))
