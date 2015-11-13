@@ -10,7 +10,7 @@ To use this crate, add `walkdir` as a dependency to your project's
 
 ```ignore
 [dependencies]
-walkdir = "0.1"
+walkdir = "0.1.5"
 ```
 
 # From the top
