@@ -638,3 +638,24 @@ fn qc_roundtrip_no_symlinks_with_follow() {
                .max_tests(10_000)
                .quickcheck(p as fn(Tree) -> bool);
 }
+
+#[test]
+fn walk_dir_sort() {
+    let exp = td("foo", vec![
+        tf("bar"),
+        td("abc", vec![tf("fit")]),
+        tf("faz"),
+    ]);
+    let tmp = tmpdir();
+    let tmp_path = tmp.path();
+    let tmp_len = tmp_path.to_str().unwrap().len();
+    exp.create_in(tmp_path).unwrap();
+    let it = WalkDir::new(tmp_path).sort_by(|a,b| a.cmp(b)).into_iter();
+    let got = it.map(|d| {
+        let path = d.unwrap();
+        let path = &path.path().to_str().unwrap()[tmp_len..];
+        path.replace("\\", "/")
+    }).collect::<Vec<String>>();
+    assert_eq!(got,
+        ["", "/foo", "/foo/abc", "/foo/abc/fit", "/foo/bar", "/foo/faz"]);
+}
