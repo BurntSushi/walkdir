@@ -18,6 +18,7 @@ Options:
     --max-depth NUM      Maximum depth.
     -n, --fd-max NUM     Maximum open file descriptors. [default: 32]
     --tree               Show output as a tree.
+    --sort               Sort the output.
     -q, --ignore-errors  Ignore errors.
 ";
 
@@ -31,6 +32,7 @@ struct Args {
     flag_fd_max: usize,
     flag_tree: bool,
     flag_ignore_errors: bool,
+    flag_sort: bool,
 }
 
 macro_rules! wout { ($($tt:tt)*) => { {writeln!($($tt)*)}.unwrap() } }
@@ -40,12 +42,16 @@ fn main() {
                                        .unwrap_or_else(|e| e.exit());
     let mind = args.flag_min_depth.unwrap_or(0);
     let maxd = args.flag_max_depth.unwrap_or(::std::usize::MAX);
-    let it = WalkDir::new(args.arg_dir.clone().unwrap_or(".".to_owned()))
+    let dir = args.arg_dir.clone().unwrap_or(".".to_owned());
+    let mut walkdir = WalkDir::new(dir)
                      .max_open(args.flag_fd_max)
                      .follow_links(args.flag_follow_links)
                      .min_depth(mind)
-                     .max_depth(maxd)
-                     .into_iter();
+                     .max_depth(maxd);
+    if args.flag_sort {
+        walkdir = walkdir.sort_by(|a,b| a.cmp(b));
+    }
+    let it = walkdir.into_iter();
     let mut out = io::BufWriter::new(io::stdout());
     let mut eout = io::stderr();
     if args.flag_tree {
