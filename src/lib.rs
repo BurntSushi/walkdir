@@ -89,7 +89,7 @@ for entry in walker.filter_entry(|e| !is_hidden(e)) {
 #[cfg(test)] extern crate quickcheck;
 #[cfg(test)] extern crate rand;
 
-use std::cmp::min;
+use std::cmp::{Ordering, min};
 use std::error;
 use std::fmt;
 use std::fs::{self, FileType, ReadDir};
@@ -191,7 +191,7 @@ struct WalkDirOptions {
     max_open: usize,
     min_depth: usize,
     max_depth: usize,
-    sorter: Option<Box<FnMut(&OsString,&OsString) -> std::cmp::Ordering>>,
+    sorter: Option<Box<FnMut(&OsString,&OsString) -> Ordering + 'static>>,
 }
 
 impl WalkDir {
@@ -290,11 +290,11 @@ impl WalkDir {
     }
 
     /// Set a function for sorting directory entries.
-    /// If a compare function is set, WalkDir will return all paths in sorted
-    /// order. The compare function will be called to compare names from entries
-    /// from the same directory. Just the file_name() part of the paths is
-    /// passed to the compare function.
-    /// If no function is set, the entries will not be sorted.
+    ///
+    /// If a compare function is set, the resulting iterator will return all
+    /// paths in sorted order. The compare function will be called to compare
+    /// names from entries from the same directory using only the name of the
+    /// entry.
     ///
     /// ```rust,no-run
     /// use std::cmp;
@@ -303,7 +303,8 @@ impl WalkDir {
     ///
     /// WalkDir::new("foo").sort_by(|a,b| a.cmp(b));
     /// ```
-    pub fn sort_by<F: FnMut(&OsString,&OsString) -> std::cmp::Ordering + 'static>(mut self, cmp: F) -> Self {
+    pub fn sort_by<F>(mut self, cmp: F) -> Self
+            where F: FnMut(&OsString, &OsString) -> Ordering + 'static {
         self.opts.sorter = Some(Box::new(cmp));
         self
     }
@@ -569,17 +570,18 @@ impl Iter {
         });
         let mut list = DirList::Opened { depth: self.depth, it: rd };
         if let Some(ref mut cmp) = self.opts.sorter {
-            let mut entries = list.collect::<Vec<_>>();
+            let mut entries: Vec<_> = list.collect();
             entries.sort_by(|a, b| {
                 match (a, b) {
-                    (&Ok(ref a), &Ok(ref b))
-                        => cmp(&a.file_name(), &b.file_name()),
-                    (&Err(_), &Err(_)) => std::cmp::Ordering::Equal,
-                    (&Ok(_), &Err(_)) => std::cmp::Ordering::Greater,
-                    (&Err(_), &Ok(_)) => std::cmp::Ordering::Less,
+                    (&Ok(ref a), &Ok(ref b)) => {
+                        cmp(&a.file_name(), &b.file_name())
+                    }
+                    (&Err(_), &Err(_)) => Ordering::Equal,
+                    (&Ok(_), &Err(_)) => Ordering::Greater,
+                    (&Err(_), &Ok(_)) => Ordering::Less,
                 }
             });
-            list = DirList::Closed ( entries.into_iter() );
+            list = DirList::Closed(entries.into_iter());
         }
         self.stack_list.push(list);
         if self.opts.follow_links {
@@ -637,8 +639,6 @@ impl DirList {
     fn close(&mut self) {
         if let DirList::Opened { .. } = *self {
             *self = DirList::Closed(self.collect::<Vec<_>>().into_iter());
-        } else {
-            unreachable!("BUG: entry already closed");
         }
     }
 }
