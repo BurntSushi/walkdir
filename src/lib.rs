@@ -492,10 +492,6 @@ pub struct DirEntry {
     /// Is set when this entry was created from a symbolic link and the user
     /// excepts the iterator to follow symbolic links.
     follow_link: bool,
-    /// The underlying `fs::DirEntry`, if one exists. This is really only
-    /// useful to provide some operations (e.g., `metadata`) cheaply when
-    /// possible.
-    entry: Option<fs::DirEntry>,
     /// The depth at which this entry was generated relative to the root.
     depth: usize,
 }
@@ -522,7 +518,7 @@ impl Iterator for Iter {
                 None => self.pop(),
                 Some(Err(err)) => return Some(Err(err)),
                 Some(Ok(dent)) => {
-                    let dent = itry!(DirEntry::from_entry(self.depth, dent));
+                    let dent = itry!(DirEntry::from_entry(self.depth, &dent));
                     if let Some(result) = self.handle_entry(dent) {
                         return Some(result);
                     }
@@ -693,15 +689,12 @@ impl DirEntry {
     ///
     /// # Platform behavior
     ///
-    /// On Windows, this function requires no additional system calls. On Unix,
-    /// this always calls `std::fs::symlink_metadata`.
+    /// This always calls `std::fs::symlink_metadata`.
     ///
     /// If this entry is a symbolic link and `follow_links` is enabled, then
-    /// `std::fs::metadata` is called regardless of platform.
+    /// `std::fs::metadata` is called instead.
     pub fn metadata(&self) -> Result<fs::Metadata> {
-        if let Some(dent) = self.entry.as_ref() {
-            dent.metadata()
-        } else if self.follow_link {
+        if self.follow_link {
             fs::metadata(&self.path)
         } else {
             fs::symlink_metadata(&self.path)
@@ -735,7 +728,7 @@ impl DirEntry {
         self.depth
     }
 
-    fn from_entry(depth: usize, ent: fs::DirEntry) -> Result<DirEntry> {
+    fn from_entry(depth: usize, ent: &fs::DirEntry) -> Result<DirEntry> {
         let ty = try!(ent.file_type().map_err(|err| {
             Error::from_path(depth, ent.path(), err)
         }));
@@ -743,7 +736,6 @@ impl DirEntry {
             path: ent.path(),
             ty: ty,
             follow_link: false,
-            entry: Some(ent),
             depth: depth,
         })
     }
@@ -756,7 +748,6 @@ impl DirEntry {
             path: pb,
             ty: md.file_type(),
             follow_link: true,
-            entry: None,
             depth: depth,
         })
     }
@@ -769,7 +760,6 @@ impl DirEntry {
             path: pb,
             ty: md.file_type(),
             follow_link: false,
-            entry: None,
             depth: depth,
         })
     }
@@ -781,7 +771,6 @@ impl Clone for DirEntry {
             path: self.path.clone(),
             ty: self.ty,
             follow_link: self.follow_link,
-            entry: None,
             depth: self.depth,
         }
     }

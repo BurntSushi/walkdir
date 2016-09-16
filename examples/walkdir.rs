@@ -78,7 +78,9 @@ fn main() {
                     out.flush().unwrap();
                     wout!(eout, "ERROR: {}", err);
                 }
-                Ok(dent) => wout!(out, "{}", dent.path().display()),
+                Ok(dent) => {
+                    wout!(out, "{}", dent.path().display());
+                }
             }
         }
     }
