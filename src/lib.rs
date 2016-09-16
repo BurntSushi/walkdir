@@ -646,6 +646,7 @@ impl DirList {
 impl Iterator for DirList {
     type Item = Result<fs::DirEntry>;
 
+    #[inline(always)]
     fn next(&mut self) -> Option<Result<fs::DirEntry>> {
         match *self {
             DirList::Closed(ref mut it) => it.next(),
