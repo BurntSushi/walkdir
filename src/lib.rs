@@ -100,7 +100,7 @@ use std::path::{Path, PathBuf};
 use std::result;
 use std::vec;
 
-use same_file::is_same_file;
+pub use same_file::is_same_file;
 
 mod same_file;
 #[cfg(test)] mod tests;
