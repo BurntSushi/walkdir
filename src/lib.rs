@@ -251,12 +251,6 @@ impl WalkDir {
     /// When enabled, the yielded `DirEntry` values represent the target of
     /// the link while the path corresponds to the link. See the `DirEntry`
     /// type for more details.
-    ///
-    /// # Warning: bug with junctions on Window
-    ///
-    /// There [is a bug](https://github.com/rust-lang/rust/issues/28528)
-    /// that may affect following symbolic links on Windows when using
-    /// junctions.
     pub fn follow_links(mut self, yes: bool) -> Self {
         self.opts.follow_links = yes;
         self
