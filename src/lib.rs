@@ -198,7 +198,8 @@ impl WalkDir {
     /// Create a builder for a recursive directory iterator starting at the
     /// file path `root`. If `root` is a directory, then it is the first item
     /// yielded by the iterator. If `root` is a file, then it is the first
-    /// and only item yielded by the iterator.
+    /// and only item yielded by the iterator. If `root` is a symlink, then it
+    /// is always followed.
     pub fn new<P: AsRef<Path>>(root: P) -> Self {
         WalkDir {
             opts: WalkDirOptions {
@@ -495,7 +496,7 @@ impl Iterator for Iter {
 
     fn next(&mut self) -> Option<Result<DirEntry>> {
         if let Some(start) = self.start.take() {
-            let dent = itry!(DirEntry::from_path(0, start));
+            let dent = itry!(DirEntry::from_link(0, start));
             if let Some(result) = self.handle_entry(dent) {
                 return Some(result);
             }
@@ -742,18 +743,6 @@ impl DirEntry {
             path: pb,
             ty: md.file_type(),
             follow_link: true,
-            depth: depth,
-        })
-    }
-
-    fn from_path(depth: usize, pb: PathBuf) -> Result<DirEntry> {
-        let md = try!(fs::symlink_metadata(&pb).map_err(|err| {
-            Error::from_path(depth, pb.clone(), err)
-        }));
-        Ok(DirEntry {
-            path: pb,
-            ty: md.file_type(),
-            follow_link: false,
             depth: depth,
         })
     }
