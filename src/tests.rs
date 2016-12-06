@@ -418,6 +418,33 @@ fn walk_dir_sym_2() {
 
 #[test]
 #[cfg(unix)]
+fn walk_dir_root_sym() {
+    let exp = td("foo", vec![
+        td("bar", vec![tf("a"), tf("b")]),
+        tl("bar", "alink"),
+    ]);
+    let tmp = tmpdir();
+    let tmp_path = tmp.path();
+    let tmp_len = tmp_path.to_str().unwrap().len();
+    exp.create_in(tmp_path).unwrap();
+
+    let it = WalkDir::new(tmp_path.join("foo/alink")).into_iter();
+    let mut got = it
+        .map(|d| d.unwrap().path().to_str().unwrap()[tmp_len+1..].into())
+        .collect::<Vec<String>>();
+    got.sort();
+    assert_eq!(got, vec!["foo/alink", "foo/alink/a", "foo/alink/b"]);
+
+    let it = WalkDir::new(tmp_path.join("foo/alink/")).into_iter();
+    let mut got = it
+        .map(|d| d.unwrap().path().to_str().unwrap()[tmp_len+1..].into())
+        .collect::<Vec<String>>();
+    got.sort();
+    assert_eq!(got, vec!["foo/alink/", "foo/alink/a", "foo/alink/b"]);
+}
+
+#[test]
+#[cfg(unix)]
 fn walk_dir_sym_detect_no_follow_no_loop() {
     let exp = td("foo", vec![
         td("a", vec![tf("a1"), tf("a2")]),
