@@ -14,7 +14,11 @@ use super::{DirEntry, WalkDir, WalkDirIterator, Iter, Error, ErrorInner};
 enum Tree {
     Dir(PathBuf, Vec<Tree>),
     File(PathBuf),
-    Symlink(PathBuf, PathBuf),
+    Symlink {
+        src: PathBuf,
+        dst: PathBuf,
+        dir: bool,
+    }
 }
 
 impl Tree {
@@ -39,9 +43,10 @@ impl Tree {
                 }
                 WalkEvent::File(dent) => {
                     let node = if dent.file_type().is_symlink() {
-                        let src = try!(fs::read_link(dent.path()));
+                        let src = try!(dent.path().read_link());
                         let dst = pb(dent.file_name());
-                        Tree::Symlink(src, dst)
+                        let dir = dent.path().is_dir();
+                        Tree::Symlink { src: src, dst: dst, dir: dir }
                     } else {
                         Tree::File(pb(dent.file_name()))
                     };
@@ -57,14 +62,14 @@ impl Tree {
         match *self {
             Tree::Dir(ref pb, _) => pb,
             Tree::File(ref pb) => pb,
-            Tree::Symlink(_, ref pb) => pb,
+            Tree::Symlink { ref dst, .. } => dst,
         }
     }
 
     fn unwrap_singleton(self) -> Tree {
         match self {
-            Tree::File(_) | Tree::Symlink(_, _) => {
-                panic!("cannot unwrap file as dir");
+            Tree::File(_) | Tree::Symlink { .. } => {
+                panic!("cannot unwrap file or link as dir");
             }
             Tree::Dir(_, mut childs) => {
                 assert_eq!(childs.len(), 1);
@@ -75,7 +80,7 @@ impl Tree {
 
     fn unwrap_dir(self) -> Vec<Tree> {
         match self {
-            Tree::File(_) | Tree::Symlink(_, _) => {
+            Tree::File(_) | Tree::Symlink { .. } => {
                 panic!("cannot unwrap file as dir");
             }
             Tree::Dir(_, childs) => childs,
@@ -84,7 +89,7 @@ impl Tree {
 
     fn children_mut(&mut self) -> &mut Vec<Tree> {
         match *self {
-            Tree::File(_) | Tree::Symlink(_, _) => {
+            Tree::File(_) | Tree::Symlink { .. } => {
                 panic!("files do not have children");
             }
             Tree::Dir(_, ref mut children) => children,
@@ -94,8 +99,12 @@ impl Tree {
     fn create_in<P: AsRef<Path>>(&self, parent: P) -> io::Result<()> {
         let parent = parent.as_ref();
         match *self {
-            Tree::Symlink(ref src, ref dst) => {
-                try!(soft_link(src, parent.join(dst)));
+            Tree::Symlink { ref src, ref dst, dir } => {
+                if dir {
+                    try!(soft_link_dir(src, parent.join(dst)));
+                } else {
+                    try!(soft_link_file(src, parent.join(dst)));
+                }
             }
             Tree::File(ref p) => { try!(File::create(parent.join(p))); }
             Tree::Dir(ref dir, ref children) => {
@@ -110,8 +119,8 @@ impl Tree {
 
     fn canonical(&self) -> Tree {
         match *self {
-            Tree::Symlink(ref src, ref dst) => {
-                Tree::Symlink(src.clone(), dst.clone())
+            Tree::Symlink { ref src, ref dst, dir } => {
+                Tree::Symlink { src: src.clone(), dst: dst.clone(), dir: dir }
             }
             Tree::File(ref p) => {
                 Tree::File(p.clone())
@@ -127,8 +136,8 @@ impl Tree {
 
     fn dedup(&self) -> Tree {
         match *self {
-            Tree::Symlink(ref src, ref dst) => {
-                Tree::Symlink(src.clone(), dst.clone())
+            Tree::Symlink { ref src, ref dst, dir } => {
+                Tree::Symlink { src: src.clone(), dst: dst.clone(), dir: dir }
             }
             Tree::File(ref p) => {
                 Tree::File(p.clone())
@@ -194,7 +203,7 @@ impl Arbitrary for Tree {
 
     fn shrink(&self) -> Box<Iterator<Item=Tree>> {
         let trees: Box<Iterator<Item=Tree>> = match *self {
-            Tree::Symlink(_, _) => unimplemented!(),
+            Tree::Symlink { .. } => unimplemented!(),
             Tree::File(ref path) => {
                 let s = path.to_string_lossy().into_owned();
                 Box::new(s.shrink().map(|s| Tree::File(pb(s))))
@@ -267,10 +276,10 @@ impl Iterator for WalkEventIter {
     }
 }
 
-struct TempDir(PathBuf);
+pub struct TempDir(PathBuf);
 
 impl TempDir {
-    fn path<'a>(&'a self) -> &'a Path {
+    pub fn path<'a>(&'a self) -> &'a Path {
         &self.0
     }
 }
@@ -281,7 +290,7 @@ impl Drop for TempDir {
     }
 }
 
-fn tmpdir() -> TempDir {
+pub fn tmpdir() -> TempDir {
     let p = env::temp_dir();
     let mut r = rand::thread_rng();
     let ret = p.join(&format!("rust-{}", r.next_u32()));
@@ -301,6 +310,14 @@ fn dir_setup(t: &Tree) -> (TempDir, Tree) {
     dir_setup_with(t, |wd| wd)
 }
 
+fn canon(unix: &str) -> String {
+    if cfg!(windows) {
+        unix.replace("/", "\\")
+    } else {
+        unix.to_string()
+    }
+}
+
 fn pb<P: AsRef<Path>>(p: P) -> PathBuf { p.as_ref().to_path_buf() }
 fn td<P: AsRef<Path>>(p: P, cs: Vec<Tree>) -> Tree {
     Tree::Dir(pb(p), cs)
@@ -308,12 +325,15 @@ fn td<P: AsRef<Path>>(p: P, cs: Vec<Tree>) -> Tree {
 fn tf<P: AsRef<Path>>(p: P) -> Tree {
     Tree::File(pb(p))
 }
-fn tl<P: AsRef<Path>, Q: AsRef<Path>>(src: P, dst: Q) -> Tree {
-    Tree::Symlink(pb(src), pb(dst))
+fn tld<P: AsRef<Path>, Q: AsRef<Path>>(src: P, dst: Q) -> Tree {
+    Tree::Symlink { src: pb(src), dst: pb(dst), dir: true }
+}
+fn tlf<P: AsRef<Path>, Q: AsRef<Path>>(src: P, dst: Q) -> Tree {
+    Tree::Symlink { src: pb(src), dst: pb(dst), dir: false }
 }
 
 #[cfg(unix)]
-fn soft_link<P: AsRef<Path>, Q: AsRef<Path>>(
+pub fn soft_link_dir<P: AsRef<Path>, Q: AsRef<Path>>(
     src: P,
     dst: Q,
 ) -> io::Result<()> {
@@ -321,16 +341,30 @@ fn soft_link<P: AsRef<Path>, Q: AsRef<Path>>(
     symlink(src, dst)
 }
 
-// TODO: Figure out how to do symlinks on windows.
-// Windows differentiates dir and file symlinks.
-// We may need to tweak the `Tree` data type to
-// split links into dir/file.
-#[cfg(windows)]
-fn soft_link<P: AsRef<Path>, Q: AsRef<Path>>(
-    _src: P,
-    _dst: Q,
+#[cfg(unix)]
+pub fn soft_link_file<P: AsRef<Path>, Q: AsRef<Path>>(
+    src: P,
+    dst: Q,
 ) -> io::Result<()> {
-    unimplemented!()
+    soft_link_dir(src, dst)
+}
+
+#[cfg(windows)]
+pub fn soft_link_dir<P: AsRef<Path>, Q: AsRef<Path>>(
+    src: P,
+    dst: Q,
+) -> io::Result<()> {
+    use std::os::windows::fs::symlink_dir;
+    symlink_dir(src, dst)
+}
+
+#[cfg(windows)]
+pub fn soft_link_file<P: AsRef<Path>, Q: AsRef<Path>>(
+    src: P,
+    dst: Q,
+) -> io::Result<()> {
+    use std::os::windows::fs::symlink_file;
+    symlink_file(src, dst)
 }
 
 macro_rules! assert_tree_eq {
@@ -398,42 +432,41 @@ fn walk_dir_7() {
 }
 
 #[test]
-#[cfg(unix)]
 fn walk_dir_sym_1() {
-    let exp = td("foo", vec![tf("bar"), tl("bar", "baz")]);
+    let exp = td("foo", vec![tf("bar"), tlf("bar", "baz")]);
     let (_tmp, got) = dir_setup(&exp);
     assert_tree_eq!(exp, got);
 }
 
 #[test]
-#[cfg(unix)]
 fn walk_dir_sym_2() {
     let exp = td("foo", vec![
         td("a", vec![tf("a1"), tf("a2")]),
-        tl("a", "alink"),
+        tld("a", "alink"),
     ]);
     let (_tmp, got) = dir_setup(&exp);
     assert_tree_eq!(exp, got);
 }
 
 #[test]
-#[cfg(unix)]
-fn walk_dir_root_sym() {
+fn walk_dir_sym_root() {
     let exp = td("foo", vec![
         td("bar", vec![tf("a"), tf("b")]),
-        tl("bar", "alink"),
+        tld("bar", "alink"),
     ]);
     let tmp = tmpdir();
     let tmp_path = tmp.path();
     let tmp_len = tmp_path.to_str().unwrap().len();
     exp.create_in(tmp_path).unwrap();
 
-    let it = WalkDir::new(tmp_path.join("foo/alink")).into_iter();
+    let it = WalkDir::new(tmp_path.join("foo").join("alink")).into_iter();
     let mut got = it
         .map(|d| d.unwrap().path().to_str().unwrap()[tmp_len+1..].into())
         .collect::<Vec<String>>();
     got.sort();
-    assert_eq!(got, vec!["foo/alink", "foo/alink/a", "foo/alink/b"]);
+    assert_eq!(got, vec![
+        canon("foo/alink"), canon("foo/alink/a"), canon("foo/alink/b"),
+    ]);
 
     let it = WalkDir::new(tmp_path.join("foo/alink/")).into_iter();
     let mut got = it
@@ -448,7 +481,7 @@ fn walk_dir_root_sym() {
 fn walk_dir_sym_detect_no_follow_no_loop() {
     let exp = td("foo", vec![
         td("a", vec![tf("a1"), tf("a2")]),
-        td("b", vec![tl("../a", "alink")]),
+        td("b", vec![tld("../a", "alink")]),
     ]);
     let (_tmp, got) = dir_setup(&exp);
     assert_tree_eq!(exp, got);
@@ -459,7 +492,7 @@ fn walk_dir_sym_detect_no_follow_no_loop() {
 fn walk_dir_sym_follow_dir() {
     let actual = td("foo", vec![
         td("a", vec![tf("a1"), tf("a2")]),
-        td("b", vec![tl("../a", "alink")]),
+        td("b", vec![tld("../a", "alink")]),
     ]);
     let followed = td("foo", vec![
         td("a", vec![tf("a1"), tf("a2")]),
@@ -473,8 +506,8 @@ fn walk_dir_sym_follow_dir() {
 #[cfg(unix)]
 fn walk_dir_sym_detect_loop() {
     let actual = td("foo", vec![
-        td("a", vec![tl("../b", "blink"), tf("a1"), tf("a2")]),
-        td("b", vec![tl("../a", "alink")]),
+        td("a", vec![tlf("../b", "blink"), tf("a1"), tf("a2")]),
+        td("b", vec![tlf("../a", "alink")]),
     ]);
     let tmp = tmpdir();
     actual.create_in(tmp.path()).unwrap();
@@ -484,17 +517,16 @@ fn walk_dir_sym_detect_loop() {
                       .collect::<Result<Vec<_>, _>>();
     match got {
         Ok(x) => panic!("expected loop error, got no error: {:?}", x),
-        Err(Error { inner: ErrorInner::Io { .. }, .. }) => {
-            panic!("expected loop error, got generic IO error");
+        Err(err @ Error { inner: ErrorInner::Io { .. }, .. }) => {
+            panic!("expected loop error, got generic IO error: {:?}", err);
         }
         Err(Error { inner: ErrorInner::Loop { .. }, .. }) => {}
     }
 }
 
 #[test]
-#[cfg(unix)]
 fn walk_dir_sym_infinite() {
-    let actual = tl("a", "a");
+    let actual = tlf("a", "a");
     let tmp = tmpdir();
     actual.create_in(tmp.path()).unwrap();
     let got = WalkDir::new(tmp.path())
