@@ -20,5 +20,4 @@ test_script:
 
 branches:
   only:
-    - /\d+\.\d+\.\d+/
     - master
