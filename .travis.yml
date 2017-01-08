@@ -8,3 +8,7 @@ script:
   - cargo build --verbose
   - cargo test --verbose
   - cargo doc
+branches:
+  only:
+    - master
+    - /^\d+\.\d+\.\d+$/

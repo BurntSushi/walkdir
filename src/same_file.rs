@@ -65,6 +65,9 @@ where P: AsRef<Path>, Q: AsRef<Path> {
 
     use kernel32;
     use winapi::{self, HANDLE};
+    use winapi::fileapi::{
+        BY_HANDLE_FILE_INFORMATION,
+    };
 
     struct Handle(HANDLE);
 
@@ -79,37 +82,10 @@ where P: AsRef<Path>, Q: AsRef<Path> {
         fn deref(&self) -> &HANDLE { &self.0 }
     }
 
-    #[repr(C)]
-    #[allow(non_snake_case)]
-    struct BY_HANDLE_FILE_INFORMATION {
-        dwFileAttributes: winapi::DWORD,
-        ftCreationTime: winapi::FILETIME,
-        ftLastAccessTime: winapi::FILETIME,
-        ftLastWriteTime: winapi::FILETIME,
-        dwVolumeSerialNumber: winapi::DWORD,
-        nFileSizeHigh: winapi::DWORD,
-        nFileSizeLow: winapi::DWORD,
-        nNumberOfLinks: winapi::DWORD,
-        nFileIndexHigh: winapi::DWORD,
-        nFileIndexLow: winapi::DWORD,
-    }
-
-    #[allow(non_camel_case_types)]
-    type LPBY_HANDLE_FILE_INFORMATION = *mut BY_HANDLE_FILE_INFORMATION;
-
     fn file_info(h: &Handle) -> io::Result<BY_HANDLE_FILE_INFORMATION> {
-        #[link(name = "ws2_32")]
-        #[link(name = "userenv")]
-        extern "system" {
-            fn GetFileInformationByHandle(
-                hFile: HANDLE,
-                lpFileInformation: LPBY_HANDLE_FILE_INFORMATION,
-            ) -> winapi::BOOL;
-        }
-
         unsafe {
             let mut info: BY_HANDLE_FILE_INFORMATION = ::std::mem::zeroed();
-            if GetFileInformationByHandle(**h, &mut info) == 0 {
+            if kernel32::GetFileInformationByHandle(**h, &mut info) == 0 {
                 Err(io::Error::last_os_error())
             } else {
                 Ok(info)
@@ -199,4 +175,89 @@ where P: AsRef<Path>, Q: AsRef<Path> {
         i2.nFileSizeHigh, i2.nFileSizeLow,
     );
     Ok(k1 == k2)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs::{self, File};
+
+    use tests::{tmpdir, soft_link_dir, soft_link_file};
+
+    use super::is_same_file;
+
+    // These tests are rather uninteresting. The really interesting tests
+    // would stress the edge cases. On Unix, this might be comparing two files
+    // on different mount points with the same inode number. On Windows, this
+    // might be comparing two files whose file indices are the same on file
+    // systems where such things aren't guaranteed to be unique.
+    //
+    // Alas, I don't know how to create those environmental conditions. ---AG
+
+    #[test]
+    fn same_file_trivial() {
+        let tdir = tmpdir();
+        let dir = tdir.path();
+
+        File::create(dir.join("a")).unwrap();
+        assert!(is_same_file(dir.join("a"), dir.join("a")).unwrap());
+    }
+
+    #[test]
+    fn same_dir_trivial() {
+        let tdir = tmpdir();
+        let dir = tdir.path();
+
+        fs::create_dir(dir.join("a")).unwrap();
+        assert!(is_same_file(dir.join("a"), dir.join("a")).unwrap());
+    }
+
+    #[test]
+    fn not_same_file_trivial() {
+        let tdir = tmpdir();
+        let dir = tdir.path();
+
+        File::create(dir.join("a")).unwrap();
+        File::create(dir.join("b")).unwrap();
+        assert!(!is_same_file(dir.join("a"), dir.join("b")).unwrap());
+    }
+
+    #[test]
+    fn not_same_dir_trivial() {
+        let tdir = tmpdir();
+        let dir = tdir.path();
+
+        fs::create_dir(dir.join("a")).unwrap();
+        fs::create_dir(dir.join("b")).unwrap();
+        assert!(!is_same_file(dir.join("a"), dir.join("b")).unwrap());
+    }
+
+    #[test]
+    fn same_file_hard() {
+        let tdir = tmpdir();
+        let dir = tdir.path();
+
+        File::create(dir.join("a")).unwrap();
+        fs::hard_link(dir.join("a"), dir.join("alink")).unwrap();
+        assert!(is_same_file(dir.join("a"), dir.join("alink")).unwrap());
+    }
+
+    #[test]
+    fn same_file_soft() {
+        let tdir = tmpdir();
+        let dir = tdir.path();
+
+        File::create(dir.join("a")).unwrap();
+        soft_link_file(dir.join("a"), dir.join("alink")).unwrap();
+        assert!(is_same_file(dir.join("a"), dir.join("alink")).unwrap());
+    }
+
+    #[test]
+    fn same_dir_soft() {
+        let tdir = tmpdir();
+        let dir = tdir.path();
+
+        fs::create_dir(dir.join("a")).unwrap();
+        soft_link_dir(dir.join("a"), dir.join("alink")).unwrap();
+        assert!(is_same_file(dir.join("a"), dir.join("alink")).unwrap());
+    }
 }
