@@ -88,6 +88,7 @@ for entry in walker.filter_entry(|e| !is_hidden(e)) {
 #[cfg(windows)] extern crate winapi;
 #[cfg(test)] extern crate quickcheck;
 #[cfg(test)] extern crate rand;
+extern crate same_file;
 
 use std::cmp::{Ordering, min};
 use std::error;
@@ -102,7 +103,6 @@ use std::vec;
 
 pub use same_file::is_same_file;
 
-mod same_file;
 #[cfg(test)] mod tests;
 
 /// Like try, but for iterators that return `Option<Result<_, _>>`.

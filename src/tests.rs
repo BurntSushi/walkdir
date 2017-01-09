@@ -276,10 +276,10 @@ impl Iterator for WalkEventIter {
     }
 }
 
-pub struct TempDir(PathBuf);
+struct TempDir(PathBuf);
 
 impl TempDir {
-    pub fn path<'a>(&'a self) -> &'a Path {
+    fn path<'a>(&'a self) -> &'a Path {
         &self.0
     }
 }
@@ -290,7 +290,7 @@ impl Drop for TempDir {
     }
 }
 
-pub fn tmpdir() -> TempDir {
+fn tmpdir() -> TempDir {
     let p = env::temp_dir();
     let mut r = rand::thread_rng();
     let ret = p.join(&format!("rust-{}", r.next_u32()));
@@ -333,7 +333,7 @@ fn tlf<P: AsRef<Path>, Q: AsRef<Path>>(src: P, dst: Q) -> Tree {
 }
 
 #[cfg(unix)]
-pub fn soft_link_dir<P: AsRef<Path>, Q: AsRef<Path>>(
+fn soft_link_dir<P: AsRef<Path>, Q: AsRef<Path>>(
     src: P,
     dst: Q,
 ) -> io::Result<()> {
@@ -342,7 +342,7 @@ pub fn soft_link_dir<P: AsRef<Path>, Q: AsRef<Path>>(
 }
 
 #[cfg(unix)]
-pub fn soft_link_file<P: AsRef<Path>, Q: AsRef<Path>>(
+fn soft_link_file<P: AsRef<Path>, Q: AsRef<Path>>(
     src: P,
     dst: Q,
 ) -> io::Result<()> {
@@ -350,7 +350,7 @@ pub fn soft_link_file<P: AsRef<Path>, Q: AsRef<Path>>(
 }
 
 #[cfg(windows)]
-pub fn soft_link_dir<P: AsRef<Path>, Q: AsRef<Path>>(
+fn soft_link_dir<P: AsRef<Path>, Q: AsRef<Path>>(
     src: P,
     dst: Q,
 ) -> io::Result<()> {
@@ -359,7 +359,7 @@ pub fn soft_link_dir<P: AsRef<Path>, Q: AsRef<Path>>(
 }
 
 #[cfg(windows)]
-pub fn soft_link_file<P: AsRef<Path>, Q: AsRef<Path>>(
+fn soft_link_file<P: AsRef<Path>, Q: AsRef<Path>>(
     src: P,
     dst: Q,
 ) -> io::Result<()> {
