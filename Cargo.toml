@@ -11,7 +11,7 @@ keywords = ["directory", "recursive", "walk", "iterator"]
 license = "Unlicense/MIT"
 
 [dependencies]
-same-file = "0.1"
+same-file = "0.1.1"
 
 [target.'cfg(windows)'.dependencies]
 kernel32-sys = "0.2"
