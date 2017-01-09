@@ -489,6 +489,9 @@ pub struct DirEntry {
     follow_link: bool,
     /// The depth at which this entry was generated relative to the root.
     depth: usize,
+    /// The underlying inode number (Unix only).
+    #[cfg(unix)]
+    ino: u64,
 }
 
 impl Iterator for Iter {
@@ -723,6 +726,14 @@ impl DirEntry {
         self.depth
     }
 
+    /// Returns the underlying `d_ino` field in the contained `dirent`
+    /// structure.
+    #[cfg(unix)]
+    pub fn ino(&self) -> u64 {
+        self.ino
+    }
+
+    #[cfg(not(unix))]
     fn from_entry(depth: usize, ent: &fs::DirEntry) -> Result<DirEntry> {
         let ty = try!(ent.file_type().map_err(|err| {
             Error::from_path(depth, ent.path(), err)
@@ -735,6 +746,23 @@ impl DirEntry {
         })
     }
 
+    #[cfg(unix)]
+    fn from_entry(depth: usize, ent: &fs::DirEntry) -> Result<DirEntry> {
+        use std::os::unix::fs::DirEntryExt;
+
+        let ty = try!(ent.file_type().map_err(|err| {
+            Error::from_path(depth, ent.path(), err)
+        }));
+        Ok(DirEntry {
+            path: ent.path(),
+            ty: ty,
+            follow_link: false,
+            depth: depth,
+            ino: ent.ino(),
+        })
+    }
+
+    #[cfg(not(unix))]
     fn from_link(depth: usize, pb: PathBuf) -> Result<DirEntry> {
         let md = try!(fs::metadata(&pb).map_err(|err| {
             Error::from_path(depth, pb.clone(), err)
@@ -746,15 +774,43 @@ impl DirEntry {
             depth: depth,
         })
     }
+
+    #[cfg(unix)]
+    fn from_link(depth: usize, pb: PathBuf) -> Result<DirEntry> {
+        use std::os::unix::fs::MetadataExt;
+
+        let md = try!(fs::metadata(&pb).map_err(|err| {
+            Error::from_path(depth, pb.clone(), err)
+        }));
+        Ok(DirEntry {
+            path: pb,
+            ty: md.file_type(),
+            follow_link: true,
+            depth: depth,
+            ino: md.ino(),
+        })
+    }
 }
 
 impl Clone for DirEntry {
+    #[cfg(not(unix))]
     fn clone(&self) -> DirEntry {
         DirEntry {
             path: self.path.clone(),
             ty: self.ty,
             follow_link: self.follow_link,
             depth: self.depth,
+        }
+    }
+
+    #[cfg(unix)]
+    fn clone(&self) -> DirEntry {
+        DirEntry {
+            path: self.path.clone(),
+            ty: self.ty,
+            follow_link: self.follow_link,
+            depth: self.depth,
+            ino: self.ino,
         }
     }
 }
