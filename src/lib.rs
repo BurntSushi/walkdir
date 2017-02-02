@@ -192,6 +192,7 @@ struct WalkDirOptions {
     min_depth: usize,
     max_depth: usize,
     sorter: Option<Box<FnMut(&OsString,&OsString) -> Ordering + 'static>>,
+    contents_first: bool,
 }
 
 impl WalkDir {
@@ -208,6 +209,7 @@ impl WalkDir {
                 min_depth: 0,
                 max_depth: ::std::usize::MAX,
                 sorter: None,
+                contents_first: false,
             },
             root: root.as_ref().to_path_buf(),
         }
@@ -303,6 +305,23 @@ impl WalkDir {
         self.opts.sorter = Some(Box::new(cmp));
         self
     }
+
+    /// Yield a directory's contents before the directory itself. By default, 
+    /// this is disabled.
+    ///
+    /// When `yes` is `false` (as is the default), the directory is yielded 
+    /// before its contents are read. This is useful when, e.g. you want to 
+    /// skip processing of some directories.
+    ///
+    /// When `yes` is `true`, the iterator yields the contents of a directory
+    /// before yielding the directory itself. This is useful when, e.g. you
+    /// want to recursively delete a directory.
+    pub fn contents_first(mut self, yes: bool) -> Self {
+        self.opts.contents_first = yes;
+        self
+    }
+
+
 }
 
 impl IntoIterator for WalkDir {
@@ -317,6 +336,7 @@ impl IntoIterator for WalkDir {
             stack_path: vec![],
             oldest_opened: 0,
             depth: 0,
+            deferred_dirs: vec![],
         }
     }
 }
@@ -438,6 +458,10 @@ pub struct Iter {
     /// The current depth of iteration (the length of the stack at the
     /// beginning of each iteration).
     depth: usize,
+    /// A list of DirEntries corresponding to directories, that are 
+    /// yielded after their contents has been fully yielded. This is only
+    /// used when `contents_first` is enabled.
+    deferred_dirs: Vec<DirEntry>,
 }
 
 /// A sequence of unconsumed directory entries.
@@ -506,6 +530,9 @@ impl Iterator for Iter {
         }
         while !self.stack_list.is_empty() {
             self.depth = self.stack_list.len();
+			if let Some(dentry) = self.get_deferred_dir() {
+                return Some(Ok(dentry));
+			}
             if self.depth > self.opts.max_depth {
                 // If we've exceeded the max depth, pop the current dir
                 // so that we don't descend.
@@ -522,6 +549,12 @@ impl Iterator for Iter {
                     }
                 }
             }
+        }
+        if self.opts.contents_first {
+        	self.depth = self.stack_list.len();
+			if let Some(dentry) = self.get_deferred_dir() {
+				return Some(Ok(dentry));
+			}
         }
         None
     }
@@ -549,8 +582,25 @@ impl Iter {
         if dent.file_type().is_dir() {
             self.push(&dent);
         }
-        if self.skippable() { None } else { Some(Ok(dent)) }
+    	if dent.file_type().is_dir() && self.opts.contents_first {
+    		self.deferred_dirs.push(dent);
+    		None
+    	} else {
+    		if self.skippable() { None } else { Some(Ok(dent)) }
+    	} 
     }
+
+	fn get_deferred_dir(&mut self) -> Option<DirEntry> {
+        if self.opts.contents_first {
+        	if self.depth < self.deferred_dirs.len() {
+        		let deferred : DirEntry = self.deferred_dirs.pop().unwrap();
+				if !self.skippable() {
+					return Some(deferred);
+				}
+        	}
+        }
+		None
+	}
 
     fn push(&mut self, dent: &DirEntry) {
         // Make room for another open file descriptor if we've hit the max.

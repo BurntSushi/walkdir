@@ -20,6 +20,7 @@ Options:
     --tree               Show output as a tree.
     --sort               Sort the output.
     -q, --ignore-errors  Ignore errors.
+    -d, --depth          Show directory's contents before the directory itself.
 ";
 
 #[derive(Debug, RustcDecodable)]
@@ -33,6 +34,7 @@ struct Args {
     flag_tree: bool,
     flag_ignore_errors: bool,
     flag_sort: bool,
+    flag_depth: bool,
 }
 
 macro_rules! wout { ($($tt:tt)*) => { {writeln!($($tt)*)}.unwrap() } }
@@ -50,6 +52,9 @@ fn main() {
                      .max_depth(maxd);
     if args.flag_sort {
         walkdir = walkdir.sort_by(|a,b| a.cmp(b));
+    }
+    if args.flag_depth {
+        walkdir = walkdir.contents_first(true)
     }
     let it = walkdir.into_iter();
     let mut out = io::BufWriter::new(io::stdout());
