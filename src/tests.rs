@@ -65,7 +65,7 @@ impl Tree {
         f: F,
     ) -> io::Result<Tree>
     where P: AsRef<Path>, F: FnOnce(WalkDir) -> WalkDir {
-        let mut contents_of_dir_at_depth :HashMap<usize, Vec<Tree>> = HashMap::new();
+        let mut contents_of_dir_at_depth = HashMap::new();
         let mut min_depth = ::std::usize::MAX;
         let top_level_path = p.as_ref().to_path_buf();
         for result in f(WalkDir::new(p).contents_first(true)) {
@@ -73,27 +73,26 @@ impl Tree {
 
             let tree = 
             if dentry.file_type().is_dir() {
-            	
-            	let any_contents = contents_of_dir_at_depth.remove(&(dentry.depth+1));
-            	Tree::Dir(pb(dentry.file_name()), any_contents.unwrap_or_default())
+                let any_contents = contents_of_dir_at_depth.remove(
+                    &(dentry.depth+1));
+            Tree::Dir(pb(dentry.file_name()), any_contents.unwrap_or_default())
             } else {
-	            if dentry.file_type().is_symlink() {
+                if dentry.file_type().is_symlink() {
                     let src = try!(dentry.path().read_link());
                     let dst = pb(dentry.file_name());
                     let dir = dentry.path().is_dir();
                     Tree::Symlink { src: src, dst: dst, dir: dir }
-	            } else {
-		            Tree::File(pb(dentry.file_name()))
-	            }
+                } else {
+                    Tree::File(pb(dentry.file_name()))
+                }
             };
-        	{ 
-		        let parent = contents_of_dir_at_depth.entry(dentry.depth).or_insert(vec!());
-		        (*parent).push(tree);
-        	}
-	        min_depth = cmp::min(min_depth, dentry.depth);
+            contents_of_dir_at_depth.entry(
+                    dentry.depth).or_insert(vec!()).push(tree);
+            min_depth = cmp::min(min_depth, dentry.depth);
         }
-        Ok(Tree::Dir(top_level_path, contents_of_dir_at_depth.remove(&min_depth).unwrap_or_default()))
-
+        Ok(Tree::Dir(top_level_path, 
+                contents_of_dir_at_depth.remove(&min_depth)
+                .unwrap_or_default()))
     }
 
     fn name(&self) -> &Path {
@@ -597,7 +596,8 @@ fn walk_dir_min_depth_2() {
     exp.create_in(tmp.path()).unwrap();
     let got = Tree::from_walk_with(tmp.path(), |wd| wd.min_depth(2))
                    .unwrap().unwrap_dir();
-    let got_cf = Tree::from_walk_with_contents_first(tmp.path(), |wd| wd.min_depth(2))
+    let got_cf = Tree::from_walk_with_contents_first(
+                    tmp.path(), |wd| wd.min_depth(2))
                    .unwrap().unwrap_dir();
     assert_eq!(got, got_cf);
     assert_tree_eq!(exp, td("foo", got));
@@ -615,7 +615,8 @@ fn walk_dir_min_depth_3() {
     let got = Tree::from_walk_with(tmp.path(), |wd| wd.min_depth(3))
                    .unwrap().unwrap_dir();
     assert_eq!(vec![tf("xyz")], got);
-    let got_cf = Tree::from_walk_with_contents_first(tmp.path(), |wd| wd.min_depth(3))
+    let got_cf = Tree::from_walk_with_contents_first(
+                    tmp.path(), |wd| wd.min_depth(3))
                    .unwrap().unwrap_dir();
     assert_eq!(got, got_cf);
 }

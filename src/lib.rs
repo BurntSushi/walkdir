@@ -530,9 +530,9 @@ impl Iterator for Iter {
         }
         while !self.stack_list.is_empty() {
             self.depth = self.stack_list.len();
-			if let Some(dentry) = self.get_deferred_dir() {
+            if let Some(dentry) = self.get_deferred_dir() {
                 return Some(Ok(dentry));
-			}
+            }
             if self.depth > self.opts.max_depth {
                 // If we've exceeded the max depth, pop the current dir
                 // so that we don't descend.
@@ -551,10 +551,10 @@ impl Iterator for Iter {
             }
         }
         if self.opts.contents_first {
-        	self.depth = self.stack_list.len();
-			if let Some(dentry) = self.get_deferred_dir() {
-				return Some(Ok(dentry));
-			}
+            self.depth = self.stack_list.len();
+            if let Some(dentry) = self.get_deferred_dir() {
+                return Some(Ok(dentry));
+            }
         }
         None
     }
@@ -582,25 +582,25 @@ impl Iter {
         if dent.file_type().is_dir() {
             self.push(&dent);
         }
-    	if dent.file_type().is_dir() && self.opts.contents_first {
-    		self.deferred_dirs.push(dent);
-    		None
-    	} else {
-    		if self.skippable() { None } else { Some(Ok(dent)) }
-    	} 
+        if dent.file_type().is_dir() && self.opts.contents_first {
+            self.deferred_dirs.push(dent);
+            None
+        } else {
+            if self.skippable() { None } else { Some(Ok(dent)) }
+        } 
     }
 
-	fn get_deferred_dir(&mut self) -> Option<DirEntry> {
+    fn get_deferred_dir(&mut self) -> Option<DirEntry> {
         if self.opts.contents_first {
-        	if self.depth < self.deferred_dirs.len() {
-        		let deferred : DirEntry = self.deferred_dirs.pop().unwrap();
-				if !self.skippable() {
-					return Some(deferred);
-				}
-        	}
+            if self.depth < self.deferred_dirs.len() {
+                let deferred : DirEntry = self.deferred_dirs.pop().unwrap();
+                if !self.skippable() {
+                    return Some(deferred);
+                }
+            }
         }
-		None
-	}
+        None
+    }
 
     fn push(&mut self, dent: &DirEntry) {
         // Make room for another open file descriptor if we've hit the max.
