@@ -329,7 +329,7 @@ pub trait WalkDirIterator: Iterator {
     /// recently yielded directory. This means any remaining entries in that
     /// directory will be skipped (including sub-directories).
     ///
-    /// Note that the ergnomics of this method are questionable since it
+    /// Note that the ergonomics of this method are questionable since it
     /// borrows the iterator mutably. Namely, you must write out the looping
     /// condition manually. For example, to skip hidden entries efficiently on
     /// unix systems:
@@ -880,7 +880,7 @@ impl<I, P> WalkDirIterator for IterFilterEntry<I, P>
 /// * An indication that a loop occurred when following symbolic links. In this
 /// case, there is no underlying IO error.
 ///
-/// To maintain good ergnomics, this type has a
+/// To maintain good ergonomics, this type has a
 /// `impl From<Error> for std::io::Error` defined so that you may use an
 /// `io::Result` with methods in this crate if you don't care about accessing
 /// the underlying error data in a structured form.
