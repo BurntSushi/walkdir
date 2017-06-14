@@ -1,5 +1,6 @@
 [package]
 name = "walkdir"
+# remember to update html_root_url
 version = "1.0.7"  #:version
 authors = ["Andrew Gallant <jamslam@gmail.com>"]
 description = "Recursively walk a directory."
