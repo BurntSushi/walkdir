@@ -420,9 +420,9 @@ pub trait WalkDirIterator: Iterator {
     ///
     /// Note that entries skipped with `min_depth` and `max_depth` are not
     /// passed to this predicate.
-    fn filter_entry<P>(self, predicate: P) -> IterFilterEntry<Self, P>
+    fn filter_entry<P>(self, predicate: P) -> FilterEntry<Self, P>
             where Self: Sized, P: FnMut(&DirEntry) -> bool {
-        IterFilterEntry { it: self, predicate: predicate }
+        FilterEntry { it: self, predicate: predicate }
     }
 }
 
@@ -884,12 +884,12 @@ impl fmt::Debug for DirEntry {
 ///
 /// Type parameter `I` refers to the underlying iterator and `P` refers to the
 /// predicate, which is usually `FnMut(&DirEntry) -> bool`.
-pub struct IterFilterEntry<I, P> {
+pub struct FilterEntry<I, P> {
     it: I,
     predicate: P,
 }
 
-impl<I, P> Iterator for IterFilterEntry<I, P>
+impl<I, P> Iterator for FilterEntry<I, P>
         where I: WalkDirIterator<Item=Result<DirEntry>>,
               P: FnMut(&DirEntry) -> bool {
     type Item = Result<DirEntry>;
@@ -911,7 +911,7 @@ impl<I, P> Iterator for IterFilterEntry<I, P>
     }
 }
 
-impl<I, P> WalkDirIterator for IterFilterEntry<I, P>
+impl<I, P> WalkDirIterator for FilterEntry<I, P>
         where I: WalkDirIterator<Item=Result<DirEntry>>,
               P: FnMut(&DirEntry) -> bool {
     fn skip_current_dir(&mut self) {
