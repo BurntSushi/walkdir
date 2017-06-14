@@ -1,3 +1,4 @@
+#![doc(html_root_url = "https://docs.rs/walkdir/1.0.7")]
 /*!
 Crate `walkdir` provides an efficient and cross platform implementation
 of recursive directory traversal. Several options are exposed to control
