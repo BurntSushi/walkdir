@@ -326,10 +326,10 @@ impl WalkDir {
 
 impl IntoIterator for WalkDir {
     type Item = Result<DirEntry>;
-    type IntoIter = Iter;
+    type IntoIter = IntoIter;
 
-    fn into_iter(self) -> Iter {
-        Iter {
+    fn into_iter(self) -> IntoIter {
+        IntoIter {
             opts: self.opts,
             start: Some(self.root),
             stack_list: vec![],
@@ -433,7 +433,7 @@ pub trait WalkDirIterator: Iterator {
 /// descriptors and whether the iterator should follow symbolic links.
 ///
 /// The order of elements yielded by this iterator is unspecified.
-pub struct Iter {
+pub struct IntoIter {
     /// Options specified in the builder. Depths, max fds, etc.
     opts: WalkDirOptions,
     /// The start path.
@@ -518,7 +518,7 @@ pub struct DirEntry {
     ino: u64,
 }
 
-impl Iterator for Iter {
+impl Iterator for IntoIter {
     type Item = Result<DirEntry>;
 
     fn next(&mut self) -> Option<Result<DirEntry>> {
@@ -560,7 +560,7 @@ impl Iterator for Iter {
     }
 }
 
-impl WalkDirIterator for Iter {
+impl WalkDirIterator for IntoIter {
     fn skip_current_dir(&mut self) {
         if !self.stack_list.is_empty() {
             self.stack_list.pop();
@@ -571,7 +571,7 @@ impl WalkDirIterator for Iter {
     }
 }
 
-impl Iter {
+impl IntoIter {
     fn handle_entry(
         &mut self,
         mut dent: DirEntry,

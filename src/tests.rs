@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use quickcheck::{Arbitrary, Gen, QuickCheck, StdGen};
 use rand::{self, Rng};
 
-use super::{DirEntry, WalkDir, WalkDirIterator, Iter, Error, ErrorInner};
+use super::{DirEntry, WalkDir, WalkDirIterator, IntoIter, Error, ErrorInner};
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum Tree {
@@ -272,7 +272,7 @@ enum WalkEvent {
 
 struct WalkEventIter {
     depth: usize,
-    it: Iter,
+    it: IntoIter,
     next: Option<Result<DirEntry, Error>>,
 }
 
