@@ -28,11 +28,18 @@ the path for each entry:
 
 ```rust,no_run
 use walkdir::WalkDir;
+# use walkdir::Error;
 
+# fn try_main() -> Result<(), Error> {
 for entry in WalkDir::new("foo") {
-    let entry = entry.unwrap();
-    println!("{}", entry.path().display());
+    println!("{}", entry?.path().display());
 }
+# Ok(())
+# }
+#
+# fn main() {
+#    try_main().unwrap();
+# }
 ```
 
 Or, if you'd like to iterate over all entries and ignore any errors that may
@@ -53,11 +60,18 @@ The same code as above, except `follow_links` is enabled:
 
 ```rust,no_run
 use walkdir::WalkDir;
+# use walkdir::Error;
 
+# fn try_main() -> Result<(), Error> {
 for entry in WalkDir::new("foo").follow_links(true) {
-    let entry = entry.unwrap();
-    println!("{}", entry.path().display());
+    println!("{}", entry?.path().display());
 }
+# Ok(())
+# }
+#
+# fn main() {
+#    try_main().unwrap();
+# }
 ```
 
 # Example: skip hidden files and directories efficiently on unix
@@ -67,6 +81,7 @@ and directories efficiently:
 
 ```rust,no_run
 use walkdir::{DirEntry, WalkDir};
+# use walkdir::Error;
 
 fn is_hidden(entry: &DirEntry) -> bool {
     entry.file_name()
@@ -75,10 +90,16 @@ fn is_hidden(entry: &DirEntry) -> bool {
          .unwrap_or(false)
 }
 
+# fn try_main() -> Result<(), Error> {
 let walker = WalkDir::new("foo").into_iter();
 for entry in walker.filter_entry(|e| !is_hidden(e)) {
-    let entry = entry.unwrap();
-    println!("{}", entry.path().display());
+    println!("{}", entry?.path().display());
+}
+# Ok(())
+# }
+#
+# fn main() {
+#     try_main().unwrap();
 }
 ```
 
@@ -149,11 +170,18 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 ///
 /// ```rust,no_run
 /// use walkdir::WalkDir;
+/// # use walkdir::Error;
 ///
+/// # fn try_main() -> Result<(), Error> {
 /// for entry in WalkDir::new("foo").min_depth(1).max_depth(3) {
-///     let entry = entry.unwrap();
-///     println!("{}", entry.path().display());
+///     println!("{}", entry?.path().display());
 /// }
+/// # Ok(())
+/// # }
+/// #
+/// # fn main() {
+/// #    try_main().unwrap();
+/// # }
 /// ```
 ///
 /// Note that the iterator by default includes the top-most directory. Since
@@ -162,11 +190,18 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 ///
 /// ```rust,no_run
 /// use walkdir::WalkDir;
+/// # use walkdir::Error;
 ///
+/// # fn try_main() -> Result<(), Error> {
 /// for entry in WalkDir::new("foo").min_depth(1) {
-///     let entry = entry.unwrap();
-///     println!("{}", entry.path().display());
+///     println!("{}", entry?.path().display());
 /// }
+/// # Ok(())
+/// # }
+/// #
+/// # fn main() {
+/// #    try_main().unwrap();
+/// # }
 /// ```
 ///
 /// This will only return descendents of the `foo` directory and not `foo`
@@ -595,6 +630,7 @@ impl IntoIter {
     ///
     /// ```rust,no_run
     /// use walkdir::{DirEntry, WalkDir};
+    /// # use walkdir::Error;
     ///
     /// fn is_hidden(entry: &DirEntry) -> bool {
     ///     entry.file_name()
@@ -603,12 +639,18 @@ impl IntoIter {
     ///          .unwrap_or(false)
     /// }
     ///
+    /// # fn try_main() -> Result<(), Error> {
     /// for entry in WalkDir::new("foo")
     ///                      .into_iter()
     ///                      .filter_entry(|e| !is_hidden(e)) {
-    ///     let entry = entry.unwrap();
-    ///     println!("{}", entry.path().display());
+    ///     println!("{}", entry?.path().display());
     /// }
+    /// # Ok(())
+    /// # }
+    /// #
+    /// # fn main() {
+    /// #    try_main().unwrap();
+    /// # }
     /// ```
     ///
     /// Note that the iterator will still yield errors for reading entries that
@@ -985,6 +1027,7 @@ impl<P> FilterEntry<IntoIter, P>
     ///
     /// ```rust,no_run
     /// use walkdir::{DirEntry, WalkDir};
+    /// # use walkdir::Error;
     ///
     /// fn is_hidden(entry: &DirEntry) -> bool {
     ///     entry.file_name()
@@ -993,12 +1036,18 @@ impl<P> FilterEntry<IntoIter, P>
     ///          .unwrap_or(false)
     /// }
     ///
+    /// # fn try_main() -> Result<(), Error> {
     /// for entry in WalkDir::new("foo")
     ///                      .into_iter()
     ///                      .filter_entry(|e| !is_hidden(e)) {
-    ///     let entry = entry.unwrap();
-    ///     println!("{}", entry.path().display());
+    ///     println!("{}", entry?.path().display());
     /// }
+    /// # Ok(())
+    /// # }
+    /// #
+    /// # fn main() {
+    /// #    try_main().unwrap();
+    /// # }
     /// ```
     ///
     /// Note that the iterator will still yield errors for reading entries that
