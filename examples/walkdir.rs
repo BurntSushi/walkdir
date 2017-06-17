@@ -51,7 +51,7 @@ fn main() {
                      .min_depth(mind)
                      .max_depth(maxd);
     if args.flag_sort {
-        walkdir = walkdir.sort_by(|a,b| a.cmp(b));
+        walkdir = walkdir.sort_by(|(name_a, _), (name_b, _)| name_a.cmp(name_b));
     }
     if args.flag_depth {
         walkdir = walkdir.contents_first(true)

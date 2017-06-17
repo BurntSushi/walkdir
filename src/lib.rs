@@ -93,10 +93,9 @@ extern crate same_file;
 use std::cmp::{Ordering, min};
 use std::error;
 use std::fmt;
-use std::fs::{self, FileType, ReadDir};
+use std::fs::{self, FileType, Metadata, ReadDir};
 use std::io;
 use std::ffi::OsStr;
-use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::result;
 use std::vec;
@@ -191,7 +190,8 @@ struct WalkDirOptions {
     max_open: usize,
     min_depth: usize,
     max_depth: usize,
-    sorter: Option<Box<FnMut(&OsString,&OsString) -> Ordering + 'static>>,
+    sorter: Option<Box<FnMut((&OsStr, Option<Metadata>),
+        (&OsStr, Option<Metadata>)) -> Ordering + 'static>>,
     contents_first: bool,
 }
 
@@ -290,18 +290,25 @@ impl WalkDir {
     ///
     /// If a compare function is set, the resulting iterator will return all
     /// paths in sorted order. The compare function will be called to compare
-    /// names from entries from the same directory using only the name of the
-    /// entry.
+    /// names and optional metadata from entries from the same directory.
+    /// As symlink entries are not followed, the optional metadata describe the
+    /// symlink itself.
     ///
     /// ```rust,no-run
-    /// use std::cmp;
-    /// use std::ffi::OsString;
+    /// use std::cmp::Ordering;
     /// use walkdir::WalkDir;
     ///
-    /// WalkDir::new("foo").sort_by(|a,b| a.cmp(b));
+    /// WalkDir::new("foo").sort_by(|(name_a, meta_a), (name_b, meta_b)| {
+    ///     match (meta_a, meta_b) {
+    ///         (Some(_), Some(_)) | (None, None) => name_a.cmp(name_b),
+    ///         (Some(_), None) => Ordering::Greater,
+    ///         (None, Some(_)) => Ordering::Less,
+    ///     }
+    /// });
     /// ```
     pub fn sort_by<F>(mut self, cmp: F) -> Self
-            where F: FnMut(&OsString, &OsString) -> Ordering + 'static {
+            where F: FnMut((&OsStr, Option<Metadata>),
+                  (&OsStr, Option<Metadata>)) -> Ordering + 'static {
         self.opts.sorter = Some(Box::new(cmp));
         self
     }
@@ -618,7 +625,8 @@ impl Iter {
             entries.sort_by(|a, b| {
                 match (a, b) {
                     (&Ok(ref a), &Ok(ref b)) => {
-                        cmp(&a.file_name(), &b.file_name())
+                        cmp((&a.file_name(), a.metadata().ok()),
+                            (&b.file_name(), b.metadata().ok()))
                     }
                     (&Err(_), &Err(_)) => Ordering::Equal,
                     (&Ok(_), &Err(_)) => Ordering::Greater,
