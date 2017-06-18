@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use quickcheck::{Arbitrary, Gen, QuickCheck, StdGen};
 use rand::{self, Rng};
 
-use super::{DirEntry, WalkDir, WalkDirIterator, Iter, Error, ErrorInner};
+use super::{DirEntry, WalkDir, WalkDirIterator, IntoIter, Error, ErrorInner};
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum Tree {
@@ -272,7 +272,7 @@ enum WalkEvent {
 
 struct WalkEventIter {
     depth: usize,
-    it: Iter,
+    it: IntoIter,
     next: Option<Result<DirEntry, Error>>,
 }
 
@@ -802,8 +802,8 @@ fn walk_dir_send_sync_traits() {
 
     assert_send::<WalkDir>();
     assert_sync::<WalkDir>();
-    assert_send::<Iter>();
-    assert_sync::<Iter>();
-    assert_send::<IterFilterEntry<Iter, u8>>();
-    assert_sync::<IterFilterEntry<Iter, u8>>();
+    assert_send::<IntoIter>();
+    assert_sync::<IntoIter>();
+    assert_send::<IterFilterEntry<IntoIter, u8>>();
+    assert_sync::<IterFilterEntry<IntoIter, u8>>();
 }
