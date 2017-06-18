@@ -792,3 +792,18 @@ fn walk_dir_sort_small_fd_max() {
     assert_eq!(got,
         ["", "/foo", "/foo/abc", "/foo/abc/fit", "/foo/bar", "/foo/faz"]);
 }
+
+#[test]
+fn walk_dir_send_sync_traits() {
+    use IterFilterEntry;
+
+    fn assert_send<T: Send>() {}
+    fn assert_sync<T: Sync>() {}
+
+    assert_send::<WalkDir>();
+    assert_sync::<WalkDir>();
+    assert_send::<Iter>();
+    assert_sync::<Iter>();
+    assert_send::<IterFilterEntry<Iter, u8>>();
+    assert_sync::<IterFilterEntry<Iter, u8>>();
+}

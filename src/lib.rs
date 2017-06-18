@@ -191,7 +191,7 @@ struct WalkDirOptions {
     min_depth: usize,
     max_depth: usize,
     sorter: Option<Box<FnMut((&OsStr, Option<Metadata>),
-        (&OsStr, Option<Metadata>)) -> Ordering + 'static>>,
+        (&OsStr, Option<Metadata>)) -> Ordering + Send + Sync + 'static>>,
     contents_first: bool,
 }
 
@@ -308,7 +308,7 @@ impl WalkDir {
     /// ```
     pub fn sort_by<F>(mut self, cmp: F) -> Self
             where F: FnMut((&OsStr, Option<Metadata>),
-                  (&OsStr, Option<Metadata>)) -> Ordering + 'static {
+                  (&OsStr, Option<Metadata>)) -> Ordering + Send + Sync + 'static {
         self.opts.sorter = Some(Box::new(cmp));
         self
     }
