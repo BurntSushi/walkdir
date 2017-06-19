@@ -761,7 +761,7 @@ fn walk_dir_sort() {
     let tmp_path = tmp.path();
     let tmp_len = tmp_path.to_str().unwrap().len();
     exp.create_in(tmp_path).unwrap();
-    let it = WalkDir::new(tmp_path).sort_by(|a,b| a.0.cmp(b.0)).into_iter();
+    let it = WalkDir::new(tmp_path).sort_by(|a,b| a.file_name().cmp(b.file_name())).into_iter();
     let got = it.map(|d| {
         let path = d.unwrap();
         let path = &path.path().to_str().unwrap()[tmp_len..];
@@ -783,7 +783,7 @@ fn walk_dir_sort_small_fd_max() {
     let tmp_len = tmp_path.to_str().unwrap().len();
     exp.create_in(tmp_path).unwrap();
     let it =
-        WalkDir::new(tmp_path).max_open(1).sort_by(|a,b| a.0.cmp(b.0)).into_iter();
+        WalkDir::new(tmp_path).max_open(1).sort_by(|a,b| a.file_name().cmp(b.file_name())).into_iter();
     let got = it.map(|d| {
         let path = d.unwrap();
         let path = &path.path().to_str().unwrap()[tmp_len..];
