@@ -861,15 +861,6 @@ impl DirEntry {
     }
 }
 
-#[cfg(unix)]
-impl unix::DirEntryExt for DirEntry {
-    /// Returns the underlying `d_ino` field in the contained `dirent`
-    /// structure.
-    fn ino(&self) -> u64 {
-        self.ino
-    }
-}
-
 impl Clone for DirEntry {
     #[cfg(not(unix))]
     fn clone(&self) -> DirEntry {
