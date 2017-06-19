@@ -795,7 +795,7 @@ fn walk_dir_sort_small_fd_max() {
 
 #[test]
 fn walk_dir_send_sync_traits() {
-    use IterFilterEntry;
+    use FilterEntry;
 
     fn assert_send<T: Send>() {}
     fn assert_sync<T: Sync>() {}
@@ -804,6 +804,6 @@ fn walk_dir_send_sync_traits() {
     assert_sync::<WalkDir>();
     assert_send::<IntoIter>();
     assert_sync::<IntoIter>();
-    assert_send::<IterFilterEntry<IntoIter, u8>>();
-    assert_sync::<IterFilterEntry<IntoIter, u8>>();
+    assert_send::<FilterEntry<IntoIter, u8>>();
+    assert_sync::<FilterEntry<IntoIter, u8>>();
 }
