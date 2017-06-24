@@ -341,6 +341,7 @@ impl IntoIterator for WalkDir {
 }
 
 /// A trait for recursive directory iterators.
+#[deprecated(since="1.0.8", note="This trait is no longer in use and and will be removed in the next major release. Its methods are now the inherent methods of `IntoIter` and `FilterEntry`")]
 pub trait WalkDirIterator: Iterator {
     /// Skips the current directory.
     ///
