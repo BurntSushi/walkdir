@@ -12,6 +12,10 @@ keywords = ["directory", "recursive", "walk", "iterator"]
 categories = ["filesystem"]
 license = "Unlicense/MIT"
 
+[badges]
+travis-ci = { repository = "BurntSushi/walkdir" }
+appveyor = { repository = "BurntSushi/walkdir" }
+
 [dependencies]
 same-file = "0.1.1"
 
