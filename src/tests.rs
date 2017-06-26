@@ -761,7 +761,7 @@ fn walk_dir_sort() {
     let tmp_path = tmp.path();
     let tmp_len = tmp_path.to_str().unwrap().len();
     exp.create_in(tmp_path).unwrap();
-    let it = WalkDir::new(tmp_path).sort_by(|a,b| a.cmp(b)).into_iter();
+    let it = WalkDir::new(tmp_path).sort_by(|a,b| a.file_name().cmp(b.file_name())).into_iter();
     let got = it.map(|d| {
         let path = d.unwrap();
         let path = &path.path().to_str().unwrap()[tmp_len..];
@@ -783,7 +783,7 @@ fn walk_dir_sort_small_fd_max() {
     let tmp_len = tmp_path.to_str().unwrap().len();
     exp.create_in(tmp_path).unwrap();
     let it =
-        WalkDir::new(tmp_path).max_open(1).sort_by(|a,b| a.cmp(b)).into_iter();
+        WalkDir::new(tmp_path).max_open(1).sort_by(|a,b| a.file_name().cmp(b.file_name())).into_iter();
     let got = it.map(|d| {
         let path = d.unwrap();
         let path = &path.path().to_str().unwrap()[tmp_len..];
@@ -791,4 +791,19 @@ fn walk_dir_sort_small_fd_max() {
     }).collect::<Vec<String>>();
     assert_eq!(got,
         ["", "/foo", "/foo/abc", "/foo/abc/fit", "/foo/bar", "/foo/faz"]);
+}
+
+#[test]
+fn walk_dir_send_sync_traits() {
+    use FilterEntry;
+
+    fn assert_send<T: Send>() {}
+    fn assert_sync<T: Sync>() {}
+
+    assert_send::<WalkDir>();
+    assert_sync::<WalkDir>();
+    assert_send::<IntoIter>();
+    assert_sync::<IntoIter>();
+    assert_send::<FilterEntry<IntoIter, u8>>();
+    assert_sync::<FilterEntry<IntoIter, u8>>();
 }

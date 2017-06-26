@@ -94,10 +94,9 @@ extern crate same_file;
 use std::cmp::{Ordering, min};
 use std::error;
 use std::fmt;
-use std::fs::{self, FileType, ReadDir};
+use std::fs::{self, FileType, Metadata, ReadDir};
 use std::io;
-use std::ffi::OsStr;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::result;
 use std::vec;
@@ -105,6 +104,7 @@ use std::vec;
 pub use same_file::is_same_file;
 
 #[cfg(test)] mod tests;
+#[cfg(unix)] mod unix;
 
 /// Like try, but for iterators that return `Option<Result<_, _>>`.
 macro_rules! itry {
@@ -192,8 +192,28 @@ struct WalkDirOptions {
     max_open: usize,
     min_depth: usize,
     max_depth: usize,
-    sorter: Option<Box<FnMut(&OsString,&OsString) -> Ordering + 'static>>,
+    sorter: Option<Box<FnMut(&DirEntrySort, &DirEntrySort) -> Ordering + Send + Sync + 'static>>,
     contents_first: bool,
+}
+
+/// A directory entry used as argument in `WalkDir::sort_by` callback.
+pub struct DirEntrySort {
+    file_name: OsString,
+    metadata: Option<Metadata>,
+}
+
+impl DirEntrySort {
+    /// Entry file name.
+    pub fn file_name(&self) -> &OsStr {
+        &self.file_name
+    }
+
+    /// Optional metadata.
+    /// As symlink entries are not followed, the optional metadata describe the
+    /// symlink itself.
+    pub fn metadata(&self) -> Option<&Metadata> {
+        self.metadata.as_ref()
+    }
 }
 
 impl WalkDir {
@@ -290,28 +310,32 @@ impl WalkDir {
     /// Set a function for sorting directory entries.
     ///
     /// If a compare function is set, the resulting iterator will return all
-    /// paths in sorted order. The compare function will be called to compare
-    /// names from entries from the same directory using only the name of the
-    /// entry.
+    /// paths in sorted order. The compare function will be called with two
+    /// entries to compare.
     ///
     /// ```rust,no-run
-    /// use std::cmp;
-    /// use std::ffi::OsString;
+    /// use std::cmp::Ordering;
     /// use walkdir::WalkDir;
     ///
-    /// WalkDir::new("foo").sort_by(|a,b| a.cmp(b));
+    /// WalkDir::new("foo").sort_by(|a, b| {
+    ///     match (a.metadata(), b.metadata()) {
+    ///         (Some(_), Some(_)) | (None, None) => a.file_name().cmp(b.file_name()),
+    ///         (Some(_), None) => Ordering::Greater,
+    ///         (None, Some(_)) => Ordering::Less,
+    ///     }
+    /// });
     /// ```
     pub fn sort_by<F>(mut self, cmp: F) -> Self
-            where F: FnMut(&OsString, &OsString) -> Ordering + 'static {
+            where F: FnMut(&DirEntrySort, &DirEntrySort) -> Ordering + Send + Sync + 'static {
         self.opts.sorter = Some(Box::new(cmp));
         self
     }
 
-    /// Yield a directory's contents before the directory itself. By default, 
+    /// Yield a directory's contents before the directory itself. By default,
     /// this is disabled.
     ///
-    /// When `yes` is `false` (as is the default), the directory is yielded 
-    /// before its contents are read. This is useful when, e.g. you want to 
+    /// When `yes` is `false` (as is the default), the directory is yielded
+    /// before its contents are read. This is useful when, e.g. you want to
     /// skip processing of some directories.
     ///
     /// When `yes` is `true`, the iterator yields the contents of a directory
@@ -459,7 +483,7 @@ pub struct IntoIter {
     /// The current depth of iteration (the length of the stack at the
     /// beginning of each iteration).
     depth: usize,
-    /// A list of DirEntries corresponding to directories, that are 
+    /// A list of DirEntries corresponding to directories, that are
     /// yielded after their contents has been fully yielded. This is only
     /// used when `contents_first` is enabled.
     deferred_dirs: Vec<DirEntry>,
@@ -588,7 +612,7 @@ impl IntoIter {
             None
         } else {
             if self.skippable() { None } else { Some(Ok(dent)) }
-        } 
+        }
     }
 
     fn get_deferred_dir(&mut self) -> Option<DirEntry> {
@@ -619,7 +643,9 @@ impl IntoIter {
             entries.sort_by(|a, b| {
                 match (a, b) {
                     (&Ok(ref a), &Ok(ref b)) => {
-                        cmp(&a.file_name(), &b.file_name())
+                        let a = DirEntrySort{ file_name: a.file_name(), metadata: a.metadata().ok() };
+                        let b = DirEntrySort{ file_name: b.file_name(), metadata: b.metadata().ok() };
+                        cmp(&a, &b)
                     }
                     (&Err(_), &Err(_)) => Ordering::Equal,
                     (&Ok(_), &Err(_)) => Ordering::Greater,
@@ -775,13 +801,6 @@ impl DirEntry {
     /// `1`, and their descendents have depth `2`, and so on.
     pub fn depth(&self) -> usize {
         self.depth
-    }
-
-    /// Returns the underlying `d_ino` field in the contained `dirent`
-    /// structure.
-    #[cfg(unix)]
-    pub fn ino(&self) -> u64 {
-        self.ino
     }
 
     #[cfg(not(unix))]
