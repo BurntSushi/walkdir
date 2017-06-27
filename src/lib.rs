@@ -16,9 +16,7 @@ walkdir = "1"
 
 # From the top
 
-The `WalkDir` type builds iterators. The `WalkDirIterator` trait provides
-methods for directory iterator adapters, such as efficiently pruning entries
-during traversal. The `DirEntry` type describes values yielded by the iterator.
+The `WalkDir` type builds iterators. The `DirEntry` type describes values yielded by the iterator.
 Finally, the `Error` type is a small wrapper around `std::io::Error` with
 additional information, such as if a loop was detected while following symbolic
 links (not enabled by default).
@@ -68,7 +66,7 @@ This uses the `filter_entry` iterator adapter to avoid yielding hidden files
 and directories efficiently:
 
 ```rust,no_run
-use walkdir::{DirEntry, WalkDir, WalkDirIterator};
+use walkdir::{DirEntry, WalkDir};
 
 fn is_hidden(entry: &DirEntry) -> bool {
     entry.file_name()
@@ -343,6 +341,7 @@ impl IntoIterator for WalkDir {
 }
 
 /// A trait for recursive directory iterators.
+#[deprecated(since="1.0.8", note="This trait is no longer in use and and will be removed in the next major release. Its methods are now the inherent methods of `IntoIter` and `FilterEntry`")]
 pub trait WalkDirIterator: Iterator {
     /// Skips the current directory.
     ///
@@ -561,8 +560,49 @@ impl Iterator for IntoIter {
     }
 }
 
-impl WalkDirIterator for IntoIter {
-    fn skip_current_dir(&mut self) {
+impl IntoIter {
+    /// Skips the current directory.
+    ///
+    /// This causes the iterator to stop traversing the contents of the least
+    /// recently yielded directory. This means any remaining entries in that
+    /// directory will be skipped (including sub-directories).
+    ///
+    /// Note that the ergonomics of this method are questionable since it
+    /// borrows the iterator mutably. Namely, you must write out the looping
+    /// condition manually. For example, to skip hidden entries efficiently on
+    /// unix systems:
+    ///
+    /// ```rust,no_run
+    /// use walkdir::{DirEntry, WalkDir};
+    ///
+    /// fn is_hidden(entry: &DirEntry) -> bool {
+    ///     entry.file_name()
+    ///          .to_str()
+    ///          .map(|s| s.starts_with("."))
+    ///          .unwrap_or(false)
+    /// }
+    ///
+    /// let mut it = WalkDir::new("foo").into_iter();
+    /// loop {
+    ///     let entry = match it.next() {
+    ///         None => break,
+    ///         Some(Err(err)) => panic!("ERROR: {}", err),
+    ///         Some(Ok(entry)) => entry,
+    ///     };
+    ///     if is_hidden(&entry) {
+    ///         if entry.file_type().is_dir() {
+    ///             it.skip_current_dir();
+    ///         }
+    ///         continue;
+    ///     }
+    ///     println!("{}", entry.path().display());
+    /// }
+    /// ```
+    ///
+    /// You may find it more convenient to use the `filter_entry` iterator
+    /// adapter. (See its documentation for the same example functionality as
+    /// above.)
+    pub fn skip_current_dir(&mut self) {
         if !self.stack_list.is_empty() {
             self.stack_list.pop();
         }
@@ -570,9 +610,46 @@ impl WalkDirIterator for IntoIter {
             self.stack_path.pop();
         }
     }
-}
 
-impl IntoIter {
+    /// Yields only entries which satisfy the given predicate and skips
+    /// descending into directories that do not satisfy the given predicate.
+    ///
+    /// The predicate is applied to all entries. If the predicate is
+    /// true, iteration carries on as normal. If the predicate is false, the
+    /// entry is ignored and if it is a directory, it is not descended into.
+    ///
+    /// This is often more convenient to use than `skip_current_dir`. For
+    /// example, to skip hidden files and directories efficiently on unix
+    /// systems:
+    ///
+    /// ```rust,no_run
+    /// use walkdir::{DirEntry, WalkDir};
+    ///
+    /// fn is_hidden(entry: &DirEntry) -> bool {
+    ///     entry.file_name()
+    ///          .to_str()
+    ///          .map(|s| s.starts_with("."))
+    ///          .unwrap_or(false)
+    /// }
+    ///
+    /// for entry in WalkDir::new("foo")
+    ///                      .into_iter()
+    ///                      .filter_entry(|e| !is_hidden(e)) {
+    ///     let entry = entry.unwrap();
+    ///     println!("{}", entry.path().display());
+    /// }
+    /// ```
+    ///
+    /// Note that the iterator will still yield errors for reading entries that
+    /// may not satisfy the predicate.
+    ///
+    /// Note that entries skipped with `min_depth` and `max_depth` are not
+    /// passed to this predicate.
+    pub fn filter_entry<P>(self, predicate: P) -> FilterEntry<Self, P>
+            where Self: Sized, P: FnMut(&DirEntry) -> bool {
+        FilterEntry { it: self, predicate: predicate }
+    }
+
     fn handle_entry(
         &mut self,
         mut dent: DirEntry,
@@ -890,9 +967,8 @@ pub struct FilterEntry<I, P> {
     predicate: P,
 }
 
-impl<I, P> Iterator for FilterEntry<I, P>
-        where I: WalkDirIterator<Item=Result<DirEntry>>,
-              P: FnMut(&DirEntry) -> bool {
+impl<P> Iterator for FilterEntry<IntoIter, P>
+              where P: FnMut(&DirEntry) -> bool {
     type Item = Result<DirEntry>;
 
     fn next(&mut self) -> Option<Result<DirEntry>> {
@@ -912,10 +988,88 @@ impl<I, P> Iterator for FilterEntry<I, P>
     }
 }
 
-impl<I, P> WalkDirIterator for FilterEntry<I, P>
-        where I: WalkDirIterator<Item=Result<DirEntry>>,
-              P: FnMut(&DirEntry) -> bool {
-    fn skip_current_dir(&mut self) {
+impl<P> FilterEntry<IntoIter, P>
+        where P: FnMut(&DirEntry) -> bool {
+    /// Yields only entries which satisfy the given predicate and skips
+    /// descending into directories that do not satisfy the given predicate.
+    ///
+    /// The predicate is applied to all entries. If the predicate is
+    /// true, iteration carries on as normal. If the predicate is false, the
+    /// entry is ignored and if it is a directory, it is not descended into.
+    ///
+    /// This is often more convenient to use than `skip_current_dir`. For
+    /// example, to skip hidden files and directories efficiently on unix
+    /// systems:
+    ///
+    /// ```rust,no_run
+    /// use walkdir::{DirEntry, WalkDir};
+    ///
+    /// fn is_hidden(entry: &DirEntry) -> bool {
+    ///     entry.file_name()
+    ///          .to_str()
+    ///          .map(|s| s.starts_with("."))
+    ///          .unwrap_or(false)
+    /// }
+    ///
+    /// for entry in WalkDir::new("foo")
+    ///                      .into_iter()
+    ///                      .filter_entry(|e| !is_hidden(e)) {
+    ///     let entry = entry.unwrap();
+    ///     println!("{}", entry.path().display());
+    /// }
+    /// ```
+    ///
+    /// Note that the iterator will still yield errors for reading entries that
+    /// may not satisfy the predicate.
+    ///
+    /// Note that entries skipped with `min_depth` and `max_depth` are not
+    /// passed to this predicate.
+    pub fn filter_entry(self, predicate: P) -> FilterEntry<Self, P> {
+        FilterEntry { it: self, predicate: predicate }
+    }
+
+    /// Skips the current directory.
+    ///
+    /// This causes the iterator to stop traversing the contents of the least
+    /// recently yielded directory. This means any remaining entries in that
+    /// directory will be skipped (including sub-directories).
+    ///
+    /// Note that the ergonomics of this method are questionable since it
+    /// borrows the iterator mutably. Namely, you must write out the looping
+    /// condition manually. For example, to skip hidden entries efficiently on
+    /// unix systems:
+    ///
+    /// ```rust,no_run
+    /// use walkdir::{DirEntry, WalkDir};
+    ///
+    /// fn is_hidden(entry: &DirEntry) -> bool {
+    ///     entry.file_name()
+    ///          .to_str()
+    ///          .map(|s| s.starts_with("."))
+    ///          .unwrap_or(false)
+    /// }
+    ///
+    /// let mut it = WalkDir::new("foo").into_iter();
+    /// loop {
+    ///     let entry = match it.next() {
+    ///         None => break,
+    ///         Some(Err(err)) => panic!("ERROR: {}", err),
+    ///         Some(Ok(entry)) => entry,
+    ///     };
+    ///     if is_hidden(&entry) {
+    ///         if entry.file_type().is_dir() {
+    ///             it.skip_current_dir();
+    ///         }
+    ///         continue;
+    ///     }
+    ///     println!("{}", entry.path().display());
+    /// }
+    /// ```
+    ///
+    /// You may find it more convenient to use the `filter_entry` iterator
+    /// adapter. (See its documentation for the same example functionality as
+    /// above.)
+    pub fn skip_current_dir(&mut self) {
         self.it.skip_current_dir();
     }
 }
