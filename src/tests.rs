@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use quickcheck::{Arbitrary, Gen, QuickCheck, StdGen};
 use rand::{self, Rng};
 
-use super::{DirEntry, WalkDir, WalkDirIterator, IntoIter, Error, ErrorInner};
+use super::{DirEntry, WalkDir, IntoIter, Error, ErrorInner};
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum Tree {
