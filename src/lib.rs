@@ -453,7 +453,8 @@ impl Iterator for IntoIter {
                 self.pop();
                 continue;
             }
-            match self.stack_list.last_mut().unwrap().next() {
+            // Unwrap is safe here because we've verified above that `self.stack_list` is not empty
+            match self.stack_list.last_mut().expect("This is a bug in walkdir").next() {
                 None => self.pop(),
                 Some(Err(err)) => return Some(Err(err)),
                 Some(Ok(dent)) => {
@@ -585,7 +586,9 @@ impl IntoIter {
     fn get_deferred_dir(&mut self) -> Option<DirEntry> {
         if self.opts.contents_first {
             if self.depth < self.deferred_dirs.len() {
-                let deferred : DirEntry = self.deferred_dirs.pop().unwrap();
+                // Unwrap is safe here because we've guaranteed that
+                // `self.deferred_dirs.len()` can never be less than 1
+                let deferred : DirEntry = self.deferred_dirs.pop().expect("This is a bug in walkdir");
                 if !self.skippable() {
                     return Some(deferred);
                 }
@@ -596,8 +599,11 @@ impl IntoIter {
 
     fn push(&mut self, dent: &DirEntry) {
         // Make room for another open file descriptor if we've hit the max.
-        if self.stack_list.len() - self.oldest_opened == self.opts.max_open {
+        if self.stack_list.len().checked_sub(self.oldest_opened).unwrap() == self.opts.max_open {
             self.stack_list[self.oldest_opened].close();
+            // Unwrap is safe here because self.oldest_opened is guaranteed to never be
+            // greater than `self.stack_list.len()`, which implies that the subtraction won't
+            // underflow and that adding 1 will never overflow.
             self.oldest_opened = self.oldest_opened.checked_add(1).unwrap();
         }
         // Open a handle to reading the directory's entries.
