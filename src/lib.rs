@@ -315,6 +315,54 @@ impl WalkDir {
     /// When `yes` is `true`, the iterator yields the contents of a directory
     /// before yielding the directory itself. This is useful when, e.g. you
     /// want to recursively delete a directory.
+    ///
+    /// Assume the following directory tree:
+    ///
+    /// ```rust,no_run
+    /// foo/
+    ///   abc/
+    ///     qrs
+    ///     tuv
+    ///   def/
+    /// ```
+    ///
+    /// With contents_first disabled (the default), the following code visits the
+    /// directory tree in depth-first order:
+    ///
+    /// ```rust,no_run
+    /// use walkdir::WalkDir;
+    ///
+    /// for entry in WalkDir::new("foo") {
+    ///     let entry = entry.unwrap();
+    ///     println!("{}", entry.path().display());
+    /// }
+    ///
+    /// // foo
+    /// // abc
+    /// // qrs
+    /// // tuv
+    /// // def
+    /// ```
+    ///
+    /// With contents_first enabled:
+    ///
+    /// ```rust,no_run
+    /// use walkdir::WalkDir;
+    ///
+    /// for entry in WalkDir::new("foo").contents_first(true) {
+    ///     let entry = entry.unwrap();
+    ///     println!("{}", entry.path().display());
+    /// }
+    ///
+    /// // qrs
+    /// // tuv
+    /// // abc
+    /// // def
+    /// // foo
+    /// ```
+
+    
+
     pub fn contents_first(mut self, yes: bool) -> Self {
         self.opts.contents_first = yes;
         self
