@@ -316,6 +316,8 @@ impl WalkDir {
     /// before yielding the directory itself. This is useful when, e.g. you
     /// want to recursively delete a directory.
     ///
+    /// # Example
+    ///
     /// Assume the following directory tree:
     ///
     /// ```text
