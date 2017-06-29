@@ -342,11 +342,13 @@ impl IntoIterator for WalkDir {
 
 /// An iterator for recursively descending into a directory.
 ///
-/// A value with this type must be constructed with the `WalkDir` type, which
+/// A value with this type must be constructed with the [`WalkDir`] type, which
 /// uses a builder pattern to set options such as min/max depth, max open file
 /// descriptors and whether the iterator should follow symbolic links.
 ///
 /// The order of elements yielded by this iterator is unspecified.
+///
+/// [`WalkDir`]: struct.WalkDir.html
 pub struct IntoIter {
     /// Options specified in the builder. Depths, max fds, etc.
     opts: WalkDirOptions,
@@ -868,7 +870,7 @@ impl fmt::Debug for DirEntry {
 /// Directories that fail the predicate `P` are skipped. Namely, they are
 /// never yielded and never descended into.
 ///
-/// Entries that are skipped with the `min_depth` and `max_depth` options are
+/// Entries that are skipped with the [`min_depth`] and [`max_depth`] options are
 /// not passed through this filter.
 ///
 /// If opening a handle to a directory resulted in an error, then it is yielded
@@ -876,6 +878,9 @@ impl fmt::Debug for DirEntry {
 ///
 /// Type parameter `I` refers to the underlying iterator and `P` refers to the
 /// predicate, which is usually `FnMut(&DirEntry) -> bool`.
+///
+/// [`min_depth`]: struct.WalkDir.html#method.min_depth
+/// [`max_depth`]: struct.WalkDir.html#method.max_depth
 pub struct FilterEntry<I, P> {
     it: I,
     predicate: P,
