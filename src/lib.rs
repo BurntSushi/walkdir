@@ -82,7 +82,7 @@ for entry in walker.filter_entry(|e| !is_hidden(e)) {
 }
 ```
 
-[`filter_entry`]: struct.FilterEntry.html#method.filter_entry
+[`filter_entry`]: struct.IntoIter.html#method.filter_entry
 */
 #[cfg(windows)] extern crate kernel32;
 #[cfg(windows)] extern crate winapi;
