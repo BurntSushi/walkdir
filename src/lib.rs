@@ -318,7 +318,7 @@ impl WalkDir {
     ///
     /// Assume the following directory tree:
     ///
-    /// ```rust,no_run
+    /// ```text
     /// foo/
     ///   abc/
     ///     qrs
