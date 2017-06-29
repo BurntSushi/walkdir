@@ -62,7 +62,7 @@ for entry in WalkDir::new("foo").follow_links(true) {
 
 # Example: skip hidden files and directories efficiently on unix
 
-This uses the `filter_entry` iterator adapter to avoid yielding hidden files
+This uses the [`filter_entry`] iterator adapter to avoid yielding hidden files
 and directories efficiently:
 
 ```rust,no_run
@@ -82,6 +82,7 @@ for entry in walker.filter_entry(|e| !is_hidden(e)) {
 }
 ```
 
+[`filter_entry`]: struct.FilterEntry.html#method.filter_entry
 */
 #[cfg(windows)] extern crate kernel32;
 #[cfg(windows)] extern crate winapi;
@@ -414,10 +415,14 @@ enum DirList {
 /// * All recursive directory iterators must inspect the entry's type.
 /// Therefore, the value is stored and its access is guaranteed to be cheap and
 /// successful.
-/// * `path` and `file_name` return borrowed variants.
-/// * If `follow_links` was enabled on the originating iterator, then all
-/// operations except for `path` operate on the link target. Otherwise, all
+/// * [`path`] and [`file_name`] return borrowed variants.
+/// * If [`follow_links`] was enabled on the originating iterator, then all
+/// operations except for [`path`] operate on the link target. Otherwise, all
 /// operations operate on the symbolic link.
+///
+/// [`path`]: #method.path
+/// [`file_name`]: #method.file_name
+/// [`follow_links`]: struct.WalkDir.html#method.follow_links
 pub struct DirEntry {
     /// The path as reported by the `fs::ReadDir` iterator (even if it's a
     /// symbolic link).
@@ -702,7 +707,7 @@ impl DirEntry {
     /// The full path that this entry represents.
     ///
     /// The full path is created by joining the parents of this entry up to the
-    /// root initially given to `WalkDir::new` with the file name of this
+    /// root initially given to [`WalkDir::new`] with the file name of this
     /// entry.
     ///
     /// Note that this *always* returns the path reported by the underlying
@@ -710,16 +715,20 @@ impl DirEntry {
     /// target path, use `path_is_symbolic_link` to (cheaply) check if
     /// this entry corresponds to a symbolic link, and `std::fs::read_link` to
     /// resolve the target.
+    ///
+    /// [`WalkDir::new`]: struct.WalkDir.html#method.new
     pub fn path(&self) -> &Path {
         &self.path
     }
 
     /// Returns `true` if and only if this entry was created from a symbolic
-    /// link. This is unaffected by the `follow_links` setting.
+    /// link. This is unaffected by the [`follow_links`] setting.
     ///
     /// When `true`, the value returned by the `path` method is a
     /// symbolic link name. To get the full target path, you must call
     /// `std::fs::read_link(entry.path())`.
+    ///
+    /// [`follow_links`]: struct.WalkDir.html#method.follow_links
     pub fn path_is_symbolic_link(&self) -> bool {
         self.ty.is_symlink() || self.follow_link
     }
@@ -727,7 +736,7 @@ impl DirEntry {
     /// Return the metadata for the file that this entry points to.
     ///
     /// This will follow symbolic links if and only if the `WalkDir` value
-    /// has `follow_links` enabled.
+    /// has [`follow_links`] enabled.
     ///
     /// # Platform behavior
     ///
@@ -735,6 +744,8 @@ impl DirEntry {
     ///
     /// If this entry is a symbolic link and `follow_links` is enabled, then
     /// `std::fs::metadata` is called instead.
+    ///
+    /// [`follow_links`]: struct.WalkDir.html#method.follow_links
     pub fn metadata(&self) -> Result<fs::Metadata> {
         if self.follow_link {
             fs::metadata(&self.path)
@@ -745,10 +756,12 @@ impl DirEntry {
 
     /// Return the file type for the file that this entry points to.
     ///
-    /// If this is a symbolic link and `follow_links` is `true`, then this
+    /// If this is a symbolic link and [`follow_links`] is `true`, then this
     /// returns the type of the target.
     ///
     /// This never makes any system calls.
+    ///
+    /// [`follow_links`]: struct.WalkDir.html#method.follow_links
     pub fn file_type(&self) -> fs::FileType {
         self.ty
     }
