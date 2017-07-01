@@ -162,7 +162,7 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 ///
 /// This type implements `IntoIterator` so that it may be used as the subject
 /// of a `for` loop. You may need to call `into_iter` explicitly if you want
-/// to use iterator adapters such as `filter_entry`.
+/// to use iterator adapters such as [`filter_entry`].
 ///
 /// Idiomatic use of this type should use method chaining to set desired
 /// options. For example, this only shows entries with a depth of `1`, `2`
@@ -184,9 +184,11 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 /// # }
 /// ```
 ///
+/// [`filter_entry`]: struct.IntoIter.html#method.filter_entry
+///
 /// Note that the iterator by default includes the top-most directory. Since
 /// this is the only directory yielded with depth `0`, it is easy to ignore it
-/// with the `min_depth` setting:
+/// with the [`min_depth`] setting:
 ///
 /// ```rust,no_run
 /// use walkdir::WalkDir;
@@ -203,6 +205,8 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 /// #    try_main().unwrap();
 /// # }
 /// ```
+///
+/// [`min_depth`]: struct.WalkDir.html#method.min_depth
 ///
 /// This will only return descendents of the `foo` directory and not `foo`
 /// itself.
@@ -341,11 +345,11 @@ impl WalkDir {
         self
     }
 
-    /// Yield a directory's contents before the directory itself. By default, 
+    /// Yield a directory's contents before the directory itself. By default,
     /// this is disabled.
     ///
-    /// When `yes` is `false` (as is the default), the directory is yielded 
-    /// before its contents are read. This is useful when, e.g. you want to 
+    /// When `yes` is `false` (as is the default), the directory is yielded
+    /// before its contents are read. This is useful when, e.g. you want to
     /// skip processing of some directories.
     ///
     /// When `yes` is `true`, the iterator yields the contents of a directory
@@ -399,7 +403,7 @@ impl WalkDir {
     /// // foo
     /// ```
 
-    
+
 
     pub fn contents_first(mut self, yes: bool) -> Self {
         self.opts.contents_first = yes;
@@ -460,7 +464,7 @@ pub struct IntoIter {
     /// The current depth of iteration (the length of the stack at the
     /// beginning of each iteration).
     depth: usize,
-    /// A list of DirEntries corresponding to directories, that are 
+    /// A list of DirEntries corresponding to directories, that are
     /// yielded after their contents has been fully yielded. This is only
     /// used when `contents_first` is enabled.
     deferred_dirs: Vec<DirEntry>,
@@ -678,7 +682,7 @@ impl IntoIter {
             None
         } else {
             if self.skippable() { None } else { Some(Ok(dent)) }
-        } 
+        }
     }
 
     fn get_deferred_dir(&mut self) -> Option<DirEntry> {
