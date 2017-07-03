@@ -526,7 +526,12 @@ pub struct DirEntry {
 
 impl Iterator for IntoIter {
     type Item = Result<DirEntry>;
-
+    /// Advances the iterator and returns the next value.
+    ///
+    /// # Errors
+    ///
+    /// If the iterator fails to retrieve the next value, this method returns an error value.
+    /// The error will be wrapped in an Option::Some.
     fn next(&mut self) -> Option<Result<DirEntry>> {
         if let Some(start) = self.start.take() {
             let dent = itry!(DirEntry::from_link(0, start));
@@ -843,7 +848,13 @@ impl DirEntry {
     /// If this entry is a symbolic link and `follow_links` is enabled, then
     /// `std::fs::metadata` is called instead.
     ///
+    /// # Errors
+    ///
+    /// Similar to [`std::fs::metadata`], returns errors for path values that the program does not
+    /// have permissions to access or if the path does not exist.  
+    ///
     /// [`follow_links`]: struct.WalkDir.html#method.follow_links
+    /// [`std::fs::metadata`]: https://doc.rust-lang.org/std/fs/fn.metadata.html
     pub fn metadata(&self) -> Result<fs::Metadata> {
         if self.follow_link {
             fs::metadata(&self.path)
@@ -1003,7 +1014,12 @@ pub struct FilterEntry<I, P> {
 impl<P> Iterator for FilterEntry<IntoIter, P>
               where P: FnMut(&DirEntry) -> bool {
     type Item = Result<DirEntry>;
-
+    /// Advances the iterator and returns the next value.
+    ///
+    /// # Errors
+    ///
+    /// If the iterator fails to retrieve the next value, this method returns an error value.
+    /// The error will be wrapped in an Option::Some.
     fn next(&mut self) -> Option<Result<DirEntry>> {
         loop {
             let dent = match self.it.next() {
