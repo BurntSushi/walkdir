@@ -101,12 +101,7 @@ use std::path::{Path, PathBuf};
 use std::result;
 use std::vec;
 
-#[deprecated(since="1.0.7", note="please use `is_same_file` from `same_file` crate instead.")]
-pub fn is_same_file<P, Q>( path1: P, path2: Q)
-    -> io::Result<bool> where P: AsRef<Path>, Q: AsRef<Path> {
-    use same_file::is_same_file;
-    is_same_file(path1, path2)
-}
+use same_file::is_same_file;
 
 #[cfg(test)] mod tests;
 
