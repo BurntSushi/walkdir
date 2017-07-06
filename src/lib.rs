@@ -609,9 +609,11 @@ impl IntoIter {
     /// }
     /// ```
     ///
-    /// You may find it more convenient to use the `filter_entry` iterator
+    /// You may find it more convenient to use the [`filter_entry`] iterator
     /// adapter. (See its documentation for the same example functionality as
     /// above.)
+    ///
+    /// [`filter_entry`]: #method.filter_entry
     pub fn skip_current_dir(&mut self) {
         if !self.stack_list.is_empty() {
             self.stack_list.pop();
@@ -628,7 +630,7 @@ impl IntoIter {
     /// true, iteration carries on as normal. If the predicate is false, the
     /// entry is ignored and if it is a directory, it is not descended into.
     ///
-    /// This is often more convenient to use than `skip_current_dir`. For
+    /// This is often more convenient to use than [`skip_current_dir`]. For
     /// example, to skip hidden files and directories efficiently on unix
     /// systems:
     ///
@@ -660,8 +662,12 @@ impl IntoIter {
     /// Note that the iterator will still yield errors for reading entries that
     /// may not satisfy the predicate.
     ///
-    /// Note that entries skipped with `min_depth` and `max_depth` are not
+    /// Note that entries skipped with [`min_depth`] and [`max_depth`] are not
     /// passed to this predicate.
+    ///
+    /// [`skip_current_dir`]: #method.skip_current_dir
+    /// [`min_depth`]: struct.WalkDir.html#method.min_depth
+    /// [`max_depth`]: struct.WalkDir.html#method.max_depth
     pub fn filter_entry<P>(self, predicate: P) -> FilterEntry<Self, P>
             where Self: Sized, P: FnMut(&DirEntry) -> bool {
         FilterEntry { it: self, predicate: predicate }
@@ -1025,7 +1031,7 @@ impl<P> FilterEntry<IntoIter, P>
     /// true, iteration carries on as normal. If the predicate is false, the
     /// entry is ignored and if it is a directory, it is not descended into.
     ///
-    /// This is often more convenient to use than `skip_current_dir`. For
+    /// This is often more convenient to use than [`skip_current_dir`]. For
     /// example, to skip hidden files and directories efficiently on unix
     /// systems:
     ///
@@ -1057,8 +1063,12 @@ impl<P> FilterEntry<IntoIter, P>
     /// Note that the iterator will still yield errors for reading entries that
     /// may not satisfy the predicate.
     ///
-    /// Note that entries skipped with `min_depth` and `max_depth` are not
+    /// Note that entries skipped with [`min_depth`] and [`max_depth`] are not
     /// passed to this predicate.
+    ///
+    /// [`skip_current_dir`]: #method.skip_current_dir
+    /// [`min_depth`]: struct.WalkDir.html#method.min_depth
+    /// [`max_depth`]: struct.WalkDir.html#method.max_depth
     pub fn filter_entry(self, predicate: P) -> FilterEntry<Self, P> {
         FilterEntry { it: self, predicate: predicate }
     }
@@ -1101,9 +1111,11 @@ impl<P> FilterEntry<IntoIter, P>
     /// }
     /// ```
     ///
-    /// You may find it more convenient to use the `filter_entry` iterator
+    /// You may find it more convenient to use the [`filter_entry`] iterator
     /// adapter. (See its documentation for the same example functionality as
     /// above.)
+    ///
+    /// [`filter_entry`]: #method.filter_entry
     pub fn skip_current_dir(&mut self) {
         self.it.skip_current_dir();
     }
