@@ -329,8 +329,7 @@ impl WalkDir {
     ///
     /// If a compare function is set, the resulting iterator will return all
     /// paths in sorted order. The compare function will be called to compare
-    /// names from entries from the same directory using only the name of the
-    /// entry.
+    /// entries from the same directory.
     ///
     /// ```rust,no-run
     /// use std::cmp;
@@ -402,15 +401,10 @@ impl WalkDir {
     /// // def
     /// // foo
     /// ```
-
-
-
     pub fn contents_first(mut self, yes: bool) -> Self {
         self.opts.contents_first = yes;
         self
     }
-
-
 }
 
 impl IntoIterator for WalkDir {
