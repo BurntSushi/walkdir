@@ -163,14 +163,19 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 /// A builder to create an iterator for recursively walking a directory.
 ///
 /// Results are returned in depth first fashion, with directories yielded
-/// before their contents. The order is unspecified. Directory entries `.`
-/// and `..` are always omitted.
+/// before their contents. If [`contents_first`] is true, contents are yielded
+/// before their directories. The order is unspecified but if [`sort_by`] is given,
+/// directory entries are sorted according to this function. Directory entries
+///`.` and `..` are always omitted.
 ///
 /// If an error occurs at any point during iteration, then it is returned in
 /// place of its corresponding directory entry and iteration continues as
 /// normal. If an error occurs while opening a directory for reading, it
 /// is skipped. Iteration may be stopped at any time. When the iterator is
 /// destroyed, all resources associated with it are freed.
+///
+/// [`contents_first`]: struct.WalkDir.html#method.contents_first
+/// [`sort_by`]: struct.WalkDir.html#method.sort_by
 ///
 /// # Usage
 ///
