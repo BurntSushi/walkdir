@@ -230,7 +230,7 @@ struct WalkDirOptions {
     max_open: usize,
     min_depth: usize,
     max_depth: usize,
-    sorter: Option<Box<FnMut(&OsString,&OsString) -> Ordering + 'static>>,
+    sorter: Option<Box<FnMut(&DirEntry,&DirEntry) -> Ordering + 'static>>,
     contents_first: bool,
 }
 
@@ -329,18 +329,17 @@ impl WalkDir {
     ///
     /// If a compare function is set, the resulting iterator will return all
     /// paths in sorted order. The compare function will be called to compare
-    /// names from entries from the same directory using only the name of the
-    /// entry.
+    /// entries from the same directory.
     ///
     /// ```rust,no-run
     /// use std::cmp;
     /// use std::ffi::OsString;
     /// use walkdir::WalkDir;
     ///
-    /// WalkDir::new("foo").sort_by(|a,b| a.cmp(b));
+    /// WalkDir::new("foo").sort_by(|a,b| a.file_name().cmp(b.file_name()));
     /// ```
     pub fn sort_by<F>(mut self, cmp: F) -> Self
-            where F: FnMut(&OsString, &OsString) -> Ordering + 'static {
+            where F: FnMut(&DirEntry, &DirEntry) -> Ordering + 'static {
         self.opts.sorter = Some(Box::new(cmp));
         self
     }
@@ -402,15 +401,10 @@ impl WalkDir {
     /// // def
     /// // foo
     /// ```
-
-
-
     pub fn contents_first(mut self, yes: bool) -> Self {
         self.opts.contents_first = yes;
         self
     }
-
-
 }
 
 impl IntoIterator for WalkDir {
@@ -488,7 +482,7 @@ enum DirList {
     /// A closed handle.
     ///
     /// All remaining directory entries are read into memory.
-    Closed(vec::IntoIter<Result<fs::DirEntry>>),
+    Closed(vec::IntoIter<Result<DirEntry>>),
 }
 
 /// A directory entry.
@@ -553,7 +547,6 @@ impl Iterator for IntoIter {
                 None => self.pop(),
                 Some(Err(err)) => return Some(Err(err)),
                 Some(Ok(dent)) => {
-                    let dent = itry!(DirEntry::from_entry(self.depth, &dent));
                     if let Some(result) = self.handle_entry(dent) {
                         return Some(result);
                     }
@@ -719,7 +712,7 @@ impl IntoIter {
             entries.sort_by(|a, b| {
                 match (a, b) {
                     (&Ok(ref a), &Ok(ref b)) => {
-                        cmp(&a.file_name(), &b.file_name())
+                        cmp(a, b)
                     }
                     (&Err(_), &Err(_)) => Ordering::Equal,
                     (&Ok(_), &Err(_)) => Ordering::Greater,
@@ -789,17 +782,18 @@ impl DirList {
 }
 
 impl Iterator for DirList {
-    type Item = Result<fs::DirEntry>;
+    type Item = Result<DirEntry>;
 
     #[inline(always)]
-    fn next(&mut self) -> Option<Result<fs::DirEntry>> {
+    fn next(&mut self) -> Option<Result<DirEntry>> {
         match *self {
             DirList::Closed(ref mut it) => it.next(),
             DirList::Opened { depth, ref mut it } => match *it {
                 Err(ref mut err) => err.take().map(Err),
-                Ok(ref mut rd) => rd.next().map(|r| r.map_err(|err| {
-                    Error::from_io(depth + 1, err)
-                })),
+                Ok(ref mut rd) => rd.next().map(|r| match r {
+                    Ok(r) => DirEntry::from_entry(depth + 1, &r),
+                    Err(err) => Err(Error::from_io(depth + 1, err))
+                }),
             }
         }
     }
