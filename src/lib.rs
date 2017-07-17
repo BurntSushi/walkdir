@@ -16,10 +16,15 @@ walkdir = "1"
 
 # From the top
 
-The `WalkDir` type builds iterators. The `DirEntry` type describes values yielded by the iterator.
-Finally, the `Error` type is a small wrapper around `std::io::Error` with
+The [`WalkDir`] type builds iterators. The [`DirEntry`] type describes values yielded by the iterator.
+Finally, the [`Error`] type is a small wrapper around [`std::io::Error`] with
 additional information, such as if a loop was detected while following symbolic
 links (not enabled by default).
+
+[`WalkDir`]: struct.Walkdir.html
+[`DirEntry`]: struct.DirEntry.html
+[`Error`]: struct.Error.html
+[`std::io::Error`]: https://doc.rust-lang.org/stable/std/io/struct.Error.html
 
 # Example
 
@@ -43,7 +48,7 @@ for entry in WalkDir::new("foo") {
 ```
 
 Or, if you'd like to iterate over all entries and ignore any errors that may
-arise, use `filter_map`. (e.g., This code below will silently skip directories
+arise, use [`filter_map`]. (e.g., This code below will silently skip directories
 that the owner of the running process does not have permission to access.)
 
 ```rust,no_run
@@ -54,9 +59,11 @@ for entry in WalkDir::new("foo").into_iter().filter_map(|e| e.ok()) {
 }
 ```
 
+[`filter_map`]: https://doc.rust-lang.org/stable/std/iter/trait.Iterator.html#method.filter_map
+
 # Example: follow symbolic links
 
-The same code as above, except `follow_links` is enabled:
+The same code as above, except [`follow_links`] is enabled:
 
 ```rust,no_run
 use walkdir::WalkDir;
@@ -73,6 +80,8 @@ for entry in WalkDir::new("foo").follow_links(true) {
 #    try_main().unwrap();
 # }
 ```
+
+[`follow_links`]: struct.Walkdir.html#method.follow_links
 
 # Example: skip hidden files and directories efficiently on unix
 
@@ -122,11 +131,13 @@ use std::path::{Path, PathBuf};
 use std::result;
 use std::vec;
 
-pub use same_file::is_same_file;
+use same_file::is_same_file;
 
 #[cfg(test)] mod tests;
 
-/// Like try, but for iterators that return `Option<Result<_, _>>`.
+/// Like try, but for iterators that return [`Option<Result<_, _>>`].
+///
+/// [`Option<Result<_, _>>`]: https://doc.rust-lang.org/stable/std/option/enum.Option.html
 macro_rules! itry {
     ($e:expr) => {
         match $e {
@@ -142,15 +153,20 @@ macro_rules! itry {
 /// is only useful if you care about the additional information provided by
 /// the error (such as the path associated with the error or whether a loop
 /// was dectected). If you want things to Just Work, then you can use
-/// `io::Result` instead since the error type in this package will
-/// automatically convert to an `io::Result` when using the `try!` macro.
+/// [`io::Result`] instead since the error type in this package will
+/// automatically convert to an [`io::Result`] when using the [`try!`] macro.
+///
+/// [`io::Result`]: https://doc.rust-lang.org/stable/std/io/type.Result.html
+/// [`try!`]: https://doc.rust-lang.org/stable/std/macro.try.html
 pub type Result<T> = ::std::result::Result<T, Error>;
 
 /// A builder to create an iterator for recursively walking a directory.
 ///
 /// Results are returned in depth first fashion, with directories yielded
-/// before their contents. The order is unspecified. Directory entries `.`
-/// and `..` are always omitted.
+/// before their contents. If [`contents_first`] is true, contents are yielded
+/// before their directories. The order is unspecified but if [`sort_by`] is given,
+/// directory entries are sorted according to this function. Directory entries
+///`.` and `..` are always omitted.
 ///
 /// If an error occurs at any point during iteration, then it is returned in
 /// place of its corresponding directory entry and iteration continues as
@@ -158,10 +174,13 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 /// is skipped. Iteration may be stopped at any time. When the iterator is
 /// destroyed, all resources associated with it are freed.
 ///
+/// [`contents_first`]: struct.WalkDir.html#method.contents_first
+/// [`sort_by`]: struct.WalkDir.html#method.sort_by
+///
 /// # Usage
 ///
-/// This type implements `IntoIterator` so that it may be used as the subject
-/// of a `for` loop. You may need to call `into_iter` explicitly if you want
+/// This type implements [`IntoIterator`] so that it may be used as the subject
+/// of a `for` loop. You may need to call [`into_iter`] explicitly if you want
 /// to use iterator adapters such as [`filter_entry`].
 ///
 /// Idiomatic use of this type should use method chaining to set desired
@@ -184,6 +203,8 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 /// # }
 /// ```
 ///
+/// [`IntoIterator`]: https://doc.rust-lang.org/stable/std/iter/trait.IntoIterator.html
+/// [`into_iter`]: https://doc.rust-lang.org/nightly/core/iter/trait.IntoIterator.html#tymethod.into_iter
 /// [`filter_entry`]: struct.IntoIter.html#method.filter_entry
 ///
 /// Note that the iterator by default includes the top-most directory. Since
@@ -310,9 +331,11 @@ impl WalkDir {
     /// normal directories and files. If a symbolic link is broken or is
     /// involved in a loop, an error is yielded.
     ///
-    /// When enabled, the yielded `DirEntry` values represent the target of
-    /// the link while the path corresponds to the link. See the `DirEntry`
+    /// When enabled, the yielded [`DirEntry`] values represent the target of
+    /// the link while the path corresponds to the link. See the [`DirEntry`]
     /// type for more details.
+    ///
+    /// [`DirEntry`]: struct.DirEntry.html
     pub fn follow_links(mut self, yes: bool) -> Self {
         self.opts.follow_links = yes;
         self
@@ -465,13 +488,17 @@ pub struct IntoIter {
     /// this is always `None`.
     start: Option<PathBuf>,
     /// A stack of open (up to max fd) or closed handles to directories.
-    /// An open handle is a plain `fs::ReadDir` while a closed handle is
+    /// An open handle is a plain [`fs::ReadDir`] while a closed handle is
     /// a `Vec<fs::DirEntry>` corresponding to the as-of-yet consumed entries.
+    ///
+    /// [`fs::ReadDir`]: https://doc.rust-lang.org/stable/std/fs/struct.ReadDir.html
     stack_list: Vec<DirList>,
     /// A stack of file paths.
     ///
-    /// This is *only* used when `follow_links` is enabled. In all other cases
+    /// This is *only* used when [`follow_links`] is enabled. In all other cases
     /// this stack is empty.
+    ///
+    /// [`follow_links`]: struct.WalkDir.html#method.follow_links
     stack_path: Vec<PathBuf>,
     /// An index into `stack_list` that points to the oldest open directory
     /// handle. If the maximum fd limit is reached and a new directory needs
@@ -492,16 +519,22 @@ pub struct IntoIter {
 /// This represents the opened or closed state of a directory handle. When
 /// open, future entries are read by iterating over the raw `fs::ReadDir`.
 /// When closed, all future entries are read into memory. Iteration then
-/// proceeds over a `Vec<fs::DirEntry>`.
+/// proceeds over a [`Vec<fs::DirEntry>`].
+///
+/// [`fs::ReadDir`]: https://doc.rust-lang.org/stable/std/fs/struct.ReadDir.html
+/// [`Vec<fs::DirEntry>`]: https://doc.rust-lang.org/stable/std/vec/struct.Vec.html
 #[derive(Debug)]
 enum DirList {
     /// An opened handle.
     ///
     /// This includes the depth of the handle itself.
     ///
-    /// If there was an error with the initial `fs::read_dir` call, then it is
-    /// stored here. (We use an `Option<...>` to make yielding the error
+    /// If there was an error with the initial [`fs::read_dir`] call, then it is
+    /// stored here. (We use an [`Option<...>`] to make yielding the error
     /// exactly once simpler.)
+    ///
+    /// [`fs::read_dir`]: https://doc.rust-lang.org/stable/std/fs/fn.read_dir.html
+    /// [`Option<...>`]: https://doc.rust-lang.org/stable/std/option/enum.Option.html
     Opened { depth: usize, it: result::Result<ReadDir, Option<Error>> },
     /// A closed handle.
     ///
@@ -514,9 +547,9 @@ enum DirList {
 /// This is the type of value that is yielded from the iterators defined in
 /// this crate.
 ///
-/// # Differences with `std::fs::DirEntry`
+/// # Differences with [`std::fs::DirEntry`]
 ///
-/// This type mostly mirrors the type by the same name in `std::fs`. There are
+/// This type mostly mirrors the type by the same name in [`std::fs`]. There are
 /// some differences however:
 ///
 /// * All recursive directory iterators must inspect the entry's type.
@@ -527,12 +560,16 @@ enum DirList {
 /// operations except for [`path`] operate on the link target. Otherwise, all
 /// operations operate on the symbolic link.
 ///
+/// [`std::fs::DirEntry`]: https://doc.rust-lang.org/stable/std/fs/struct.DirEntry.html
+/// [`std::fs`]: https://doc.rust-lang.org/stable/std/fs/index.html
 /// [`path`]: #method.path
 /// [`file_name`]: #method.file_name
 /// [`follow_links`]: struct.WalkDir.html#method.follow_links
 pub struct DirEntry {
-    /// The path as reported by the `fs::ReadDir` iterator (even if it's a
+    /// The path as reported by the [`fs::ReadDir`] iterator (even if it's a
     /// symbolic link).
+    ///
+    /// [`fs::ReadDir`]: https://doc.rust-lang.org/stable/std/fs/struct.ReadDir.html
     path: PathBuf,
     /// The file type. Necessary for recursive iteration, so store it.
     ty: FileType,
@@ -837,11 +874,13 @@ impl DirEntry {
     ///
     /// Note that this *always* returns the path reported by the underlying
     /// directory entry, even when symbolic links are followed. To get the
-    /// target path, use `path_is_symbolic_link` to (cheaply) check if
-    /// this entry corresponds to a symbolic link, and `std::fs::read_link` to
+    /// target path, use [`path_is_symbolic_link`] to (cheaply) check if
+    /// this entry corresponds to a symbolic link, and [`std::fs::read_link`] to
     /// resolve the target.
     ///
     /// [`WalkDir::new`]: struct.WalkDir.html#method.new
+    /// [`path_is_symbolic_link`]: struct.DirEntry.html#method.path_is_symbolic_link
+    /// [`std::fs::read_link`]: https://doc.rust-lang.org/stable/std/fs/fn.read_link.html
     pub fn path(&self) -> &Path {
         &self.path
     }
@@ -849,34 +888,38 @@ impl DirEntry {
     /// Returns `true` if and only if this entry was created from a symbolic
     /// link. This is unaffected by the [`follow_links`] setting.
     ///
-    /// When `true`, the value returned by the `path` method is a
+    /// When `true`, the value returned by the [`path`] method is a
     /// symbolic link name. To get the full target path, you must call
-    /// `std::fs::read_link(entry.path())`.
+    /// [`std::fs::read_link(entry.path())`].
     ///
+    /// [`path`]: struct.DirEntry.html#method.path
     /// [`follow_links`]: struct.WalkDir.html#method.follow_links
+    /// [`std::fs::read_link(entry.path())`]: https://doc.rust-lang.org/stable/std/fs/fn.read_link.html
     pub fn path_is_symbolic_link(&self) -> bool {
         self.ty.is_symlink() || self.follow_link
     }
 
     /// Return the metadata for the file that this entry points to.
     ///
-    /// This will follow symbolic links if and only if the `WalkDir` value
+    /// This will follow symbolic links if and only if the [`WalkDir`] value
     /// has [`follow_links`] enabled.
     ///
     /// # Platform behavior
     ///
-    /// This always calls `std::fs::symlink_metadata`.
+    /// This always calls [`std::fs::symlink_metadata`].
     ///
-    /// If this entry is a symbolic link and `follow_links` is enabled, then
-    /// `std::fs::metadata` is called instead.
+    /// If this entry is a symbolic link and [`follow_links`] is enabled, then
+    /// [`std::fs::metadata`] is called instead.
     ///
     /// # Errors
     ///
     /// Similar to [`std::fs::metadata`], returns errors for path values that the program does not
     /// have permissions to access or if the path does not exist.  
     ///
+    /// [`WalkDir`]: struct.WalkDir.html
     /// [`follow_links`]: struct.WalkDir.html#method.follow_links
     /// [`std::fs::metadata`]: https://doc.rust-lang.org/std/fs/fn.metadata.html
+    /// [`std::fs::symlink_metadata`]: https://doc.rust-lang.org/stable/std/fs/fn.symlink_metadata.html
     pub fn metadata(&self) -> Result<fs::Metadata> {
         if self.follow_link {
             fs::metadata(&self.path)
@@ -1161,7 +1204,7 @@ impl<P> FilterEntry<IntoIter, P>
 
 /// An error produced by recursively walking a directory.
 ///
-/// This error type is a light wrapper around `std::io::Error`. In particular,
+/// This error type is a light wrapper around [`std::io::Error`]. In particular,
 /// it adds the following information:
 ///
 /// * The depth at which the error occurred in the file tree, relative to the
@@ -1172,8 +1215,11 @@ impl<P> FilterEntry<IntoIter, P>
 ///
 /// To maintain good ergonomics, this type has a
 /// `impl From<Error> for std::io::Error` defined so that you may use an
-/// `io::Result` with methods in this crate if you don't care about accessing
+/// [`io::Result`] with methods in this crate if you don't care about accessing
 /// the underlying error data in a structured form.
+///
+/// [`std::io::Error`]: https://doc.rust-lang.org/stable/std/io/struct.Error.html
+/// [`io::Result`]: https://doc.rust-lang.org/stable/std/io/type.Result.html
 #[derive(Debug)]
 pub struct Error {
     depth: usize,
@@ -1190,7 +1236,9 @@ impl Error {
     /// Returns the path associated with this error if one exists.
     ///
     /// For example, if an error occurred while opening a directory handle,
-    /// the error will include the path passed to `std::fs::read_dir`.
+    /// the error will include the path passed to [`std::fs::read_dir`].
+    ///
+    /// [`std::fs::read_dir`]: https://doc.rust-lang.org/stable/std/fs/fn.read_dir.html
     pub fn path(&self) -> Option<&Path> {
         match self.inner {
             ErrorInner::Io { path: None, .. } => None,
@@ -1201,13 +1249,16 @@ impl Error {
 
     /// Returns the path at which a cycle was detected.
     ///
-    /// If no cycle was detected, `None` is returned.
+    /// If no cycle was detected, [`None`] is returned.
     ///
     /// A cycle is detected when a directory entry is equivalent to one of
     /// its ancestors.
     ///
     /// To get the path to the child directory entry in the cycle, use the
-    /// `path` method.
+    /// [`path`] method.
+    ///
+    /// [`None`]: https://doc.rust-lang.org/stable/std/option/enum.Option.html#variant.None
+    /// [`path`]: struct.Error.html#path
     pub fn loop_ancestor(&self) -> Option<&Path> {
         match self.inner {
             ErrorInner::Loop { ref ancestor, .. } => Some(ancestor),
@@ -1218,8 +1269,11 @@ impl Error {
     /// Returns the depth at which this error occurred relative to the root.
     ///
     /// The smallest depth is `0` and always corresponds to the path given
-    /// to the `new` function on `WalkDir`. Its direct descendents have depth
+    /// to the [`new`] function on [`WalkDir`]. Its direct descendents have depth
     /// `1`, and their descendents have depth `2`, and so on.
+    ///
+    /// [`new`]: struct.WalkDir.html#method.new
+    /// [`WalkDir`]: struct.WalkDir.html
     pub fn depth(&self) -> usize {
         self.depth
     }
