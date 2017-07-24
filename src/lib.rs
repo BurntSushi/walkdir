@@ -83,10 +83,10 @@ for entry in WalkDir::new("foo").follow_links(true) {
 
 [`follow_links`]: struct.Walkdir.html#method.follow_links
 
-# Example: skip hidden files and directories efficiently on unix
+# Example: skip hidden files and directories on unix
 
 This uses the [`filter_entry`] iterator adapter to avoid yielding hidden files
-and directories efficiently:
+and directories efficiently (i.e. without recursing into hidden directories):
 
 ```rust,no_run
 use walkdir::{DirEntry, WalkDir};
