@@ -241,6 +241,7 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 ///
 /// Note that when following symbolic/soft links, loops are detected and an
 /// error is reported.
+#[derive(Debug)]
 pub struct WalkDir {
     opts: WalkDirOptions,
     root: PathBuf,
@@ -253,6 +254,25 @@ struct WalkDirOptions {
     max_depth: usize,
     sorter: Option<Box<FnMut(&DirEntry,&DirEntry) -> Ordering + 'static>>,
     contents_first: bool,
+}
+
+impl fmt::Debug for WalkDirOptions {
+    fn fmt(&self, f: &mut fmt::Formatter) -> ::std::result::Result<(), fmt::Error> {
+        let sorter_str = if self.sorter.is_some() {
+            // FnMut isn't `Debug`
+            "Some(...)"
+        } else {
+            "None"
+        };
+        f.debug_struct("WalkDirOptions")
+            .field("follow_links", &self.follow_links)
+            .field("max_open", &self.max_open)
+            .field("min_depth", &self.min_depth)
+            .field("max_depth", &self.max_depth)
+            .field("sorter", &sorter_str)
+            .field("contents_first", &self.contents_first)
+            .finish()
+    }
 }
 
 impl WalkDir {
@@ -458,6 +478,7 @@ impl IntoIterator for WalkDir {
 ///
 /// [`WalkDir`]: struct.WalkDir.html
 /// [`.into_iter()`]: struct.WalkDir.html#into_iter.v
+#[derive(Debug)]
 pub struct IntoIter {
     /// Options specified in the builder. Depths, max fds, etc.
     opts: WalkDirOptions,
@@ -502,6 +523,7 @@ pub struct IntoIter {
 ///
 /// [`fs::ReadDir`]: https://doc.rust-lang.org/stable/std/fs/struct.ReadDir.html
 /// [`Vec<fs::DirEntry>`]: https://doc.rust-lang.org/stable/std/vec/struct.Vec.html
+#[derive(Debug)]
 enum DirList {
     /// An opened handle.
     ///
@@ -1055,6 +1077,7 @@ impl fmt::Debug for DirEntry {
 /// [`.into_iter()`]: struct.WalkDir.html#into_iter.v
 /// [`min_depth`]: struct.WalkDir.html#method.min_depth
 /// [`max_depth`]: struct.WalkDir.html#method.max_depth
+#[derive(Debug)]
 pub struct FilterEntry<I, P> {
     it: I,
     predicate: P,
