@@ -126,7 +126,6 @@ use std::fmt;
 use std::fs::{self, FileType, ReadDir};
 use std::io;
 use std::ffi::OsStr;
-use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::result;
 use std::vec;
@@ -252,7 +251,7 @@ struct WalkDirOptions {
     max_open: usize,
     min_depth: usize,
     max_depth: usize,
-    sorter: Option<Box<FnMut(&DirEntry,&DirEntry) -> Ordering + 'static>>,
+    sorter: Option<Box<FnMut(&DirEntry,&DirEntry) -> Ordering + Send + Sync + 'static>>,
     contents_first: bool,
 }
 
@@ -382,7 +381,7 @@ impl WalkDir {
     /// WalkDir::new("foo").sort_by(|a,b| a.file_name().cmp(b.file_name()));
     /// ```
     pub fn sort_by<F>(mut self, cmp: F) -> Self
-            where F: FnMut(&DirEntry, &DirEntry) -> Ordering + 'static {
+            where F: FnMut(&DirEntry, &DirEntry) -> Ordering + Send + Sync + 'static {
         self.opts.sorter = Some(Box::new(cmp));
         self
     }
