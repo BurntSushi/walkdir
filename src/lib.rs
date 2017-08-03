@@ -962,13 +962,6 @@ impl DirEntry {
         self.depth
     }
 
-    /// Returns the underlying `d_ino` field in the contained `dirent`
-    /// structure.
-    #[cfg(unix)]
-    pub fn ino(&self) -> u64 {
-        self.ino
-    }
-
     #[cfg(not(unix))]
     fn from_entry(depth: usize, ent: &fs::DirEntry) -> Result<DirEntry> {
         let ty = try!(ent.file_type().map_err(|err| {
@@ -1025,6 +1018,15 @@ impl DirEntry {
             depth: depth,
             ino: md.ino(),
         })
+    }
+}
+
+#[cfg(unix)]
+impl std::os::unix::fs::DirEntryExt for DirEntry {
+    /// Returns the underlying `d_ino` field in the contained `dirent`
+    /// structure.
+    fn ino(&self) -> u64 {
+        self.ino
     }
 }
 
