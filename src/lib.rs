@@ -133,6 +133,7 @@ use std::vec;
 
 use same_file::is_same_file;
 
+#[cfg(unix)] mod unix;
 #[cfg(test)] mod tests;
 
 /// Like try, but for iterators that return [`Option<Result<_, _>>`].
@@ -1019,15 +1020,6 @@ impl DirEntry {
             depth: depth,
             ino: md.ino(),
         })
-    }
-}
-
-#[cfg(unix)]
-impl std::os::unix::fs::DirEntryExt for DirEntry {
-    /// Returns the underlying `d_ino` field in the contained `dirent`
-    /// structure.
-    fn ino(&self) -> u64 {
-        self.ino
     }
 }
 
