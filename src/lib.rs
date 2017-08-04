@@ -129,6 +129,7 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::result;
 use std::vec;
+use std::sync::Arc;
 
 use same_file::is_same_file;
 
@@ -241,18 +242,19 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 ///
 /// Note that when following symbolic/soft links, loops are detected and an
 /// error is reported.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WalkDir {
     opts: WalkDirOptions,
     root: PathBuf,
 }
 
+#[derive(Clone)]
 struct WalkDirOptions {
     follow_links: bool,
     max_open: usize,
     min_depth: usize,
     max_depth: usize,
-    sorter: Option<Box<FnMut(&DirEntry,&DirEntry) -> Ordering + Send + Sync + 'static>>,
+    sorter: Option<Arc<FnMut(&DirEntry,&DirEntry) -> Ordering + Send + Sync + 'static>>,
     contents_first: bool,
 }
 
@@ -383,7 +385,7 @@ impl WalkDir {
     /// ```
     pub fn sort_by<F>(mut self, cmp: F) -> Self
             where F: FnMut(&DirEntry, &DirEntry) -> Ordering + Send + Sync + 'static {
-        self.opts.sorter = Some(Box::new(cmp));
+        self.opts.sorter = Some(Arc::new(cmp));
         self
     }
 
@@ -784,6 +786,7 @@ impl IntoIter {
             entries.sort_by(|a, b| {
                 match (a, b) {
                     (&Ok(ref a), &Ok(ref b)) => {
+                        let cmp = Arc::get_mut(cmp).unwrap();
                         cmp(a, b)
                     }
                     (&Err(_), &Err(_)) => Ordering::Equal,
@@ -920,7 +923,7 @@ impl DirEntry {
     /// # Errors
     ///
     /// Similar to [`std::fs::metadata`], returns errors for path values that the program does not
-    /// have permissions to access or if the path does not exist.  
+    /// have permissions to access or if the path does not exist.
     ///
     /// [`WalkDir`]: struct.WalkDir.html
     /// [`follow_links`]: struct.WalkDir.html#method.follow_links
