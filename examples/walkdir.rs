@@ -15,14 +15,15 @@ Usage:
 
 Options:
     -h, --help
-    -L, --follow-links   Follow symlinks.
-    --min-depth NUM      Minimum depth.
-    --max-depth NUM      Maximum depth.
-    -n, --fd-max NUM     Maximum open file descriptors. [default: 32]
-    --tree               Show output as a tree.
-    --sort               Sort the output.
-    -q, --ignore-errors  Ignore errors.
-    -d, --depth          Show directory's contents before the directory itself.
+    -L, --follow-links      Follow symlinks.
+    --min-depth NUM         Minimum depth.
+    --max-depth NUM         Maximum depth.
+    -n, --fd-max NUM        Maximum open file descriptors. [default: 32]
+    --tree                  Show output as a tree.
+    --sort                  Sort the output.
+    -q, --ignore-errors     Ignore errors.
+    -d, --depth             Show directory's contents before the directory itself.
+    --same-file-system      Stay on the same file system.
 ";
 
 #[derive(Debug, Deserialize)]
@@ -37,6 +38,7 @@ struct Args {
     flag_ignore_errors: bool,
     flag_sort: bool,
     flag_depth: bool,
+    flag_same_file_system: bool,
 }
 
 macro_rules! wout { ($($tt:tt)*) => { {writeln!($($tt)*)}.unwrap() } }
@@ -52,7 +54,8 @@ fn main() {
         .max_open(args.flag_fd_max)
         .follow_links(args.flag_follow_links)
         .min_depth(mind)
-        .max_depth(maxd);
+        .max_depth(maxd)
+        .same_file_system(args.flag_same_file_system);
     if args.flag_sort {
         walkdir = walkdir.sort_by(|a,b| a.file_name().cmp(b.file_name()));
     }

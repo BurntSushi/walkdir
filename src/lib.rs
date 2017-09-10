@@ -246,6 +246,7 @@ struct WalkDirOptions {
         FnMut(&DirEntry,&DirEntry) -> Ordering + Send + Sync + 'static
     >>,
     contents_first: bool,
+    same_file_system: bool,
 }
 
 impl fmt::Debug for WalkDirOptions {
@@ -263,6 +264,7 @@ impl fmt::Debug for WalkDirOptions {
             .field("max_depth", &self.max_depth)
             .field("sorter", &sorter_str)
             .field("contents_first", &self.contents_first)
+            .field("same_file_system", &self.same_file_system)
             .finish()
     }
 }
@@ -282,6 +284,7 @@ impl WalkDir {
                 max_depth: ::std::usize::MAX,
                 sorter: None,
                 contents_first: false,
+                same_file_system: false,
             },
             root: root.as_ref().to_path_buf(),
         }
@@ -445,6 +448,12 @@ impl WalkDir {
     /// ```
     pub fn contents_first(mut self, yes: bool) -> Self {
         self.opts.contents_first = yes;
+        self
+    }
+
+    /// Do not cross filesystem boundaries.
+    pub fn same_file_system(mut self, yes: bool) -> Self {
+        self.opts.same_file_system = yes;
         self
     }
 }
