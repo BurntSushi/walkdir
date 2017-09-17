@@ -247,6 +247,7 @@ struct WalkDirOptions {
     >>,
     contents_first: bool,
     same_file_system: bool,
+    root_device: Option<u64>,
 }
 
 impl fmt::Debug for WalkDirOptions {
@@ -265,6 +266,7 @@ impl fmt::Debug for WalkDirOptions {
             .field("sorter", &sorter_str)
             .field("contents_first", &self.contents_first)
             .field("same_file_system", &self.same_file_system)
+            .field("root_device", &self.root_device)
             .finish()
     }
 }
@@ -285,6 +287,7 @@ impl WalkDir {
                 sorter: None,
                 contents_first: false,
                 same_file_system: false,
+                root_device: None,
             },
             root: root.as_ref().to_path_buf(),
         }
@@ -454,7 +457,21 @@ impl WalkDir {
     /// Do not cross filesystem boundaries.
     pub fn same_file_system(mut self, yes: bool) -> Self {
         self.opts.same_file_system = yes;
+        self.opts.root_device = self.get_root_device();
         self
+    }
+    #[cfg(unix)]
+    fn get_root_device(&self) -> Option<u64> {
+        use std::os::unix::fs::MetadataExt;
+        match self.root.metadata() {
+            Ok(metadata) => return Some(metadata.dev()),
+            Err(_) => panic!("Error while looking up starting filesystem"),
+        }
+    }
+
+    #[cfg(not(unix))]
+    fn get_root_device(self) -> Option<u64> {
+        None
     }
 }
 
@@ -638,6 +655,9 @@ pub struct DirEntry {
     /// The underlying inode number (Unix only).
     #[cfg(unix)]
     ino: u64,
+    /// The underlying device number (Unix only).
+    #[cfg(unix)]
+    dev: Option<u64>,
 }
 
 impl Iterator for IntoIter {
@@ -793,10 +813,32 @@ impl IntoIter {
         FilterEntry { it: self, predicate: predicate }
     }
 
+    fn is_same_file_system(&self, dent: &DirEntry) -> bool {
+        use std::os::unix::fs::MetadataExt;
+        if let Ok(metadata) = dent.metadata() {
+            if metadata.dev() == self.opts.root_device.unwrap() {
+                // remove "IF"
+                println!("is_same_file_system return=true {:?} {:?}", metadata.dev(), self.opts.root_device.unwrap() );
+                return true
+            } else {
+                println!("is_same_file_system return=FALSE {:?} {:?}", metadata.dev(), self.opts.root_device.unwrap());
+                return false
+            }
+        } else {
+            panic!("is_same_file_system ERROR ")
+        }
+
+    }
+
     fn handle_entry(
         &mut self,
         mut dent: DirEntry,
     ) -> Option<Result<DirEntry>> {
+        if self.opts.same_file_system {
+            if dent.depth != 0 && !self.is_same_file_system(&dent) {
+                return None
+            }
+        }
         if self.opts.follow_links && dent.file_type().is_symlink() {
             dent = itry!(self.follow(dent));
         }
@@ -1063,6 +1105,7 @@ impl DirEntry {
             follow_link: false,
             depth: depth,
             ino: ent.ino(),
+            dev: None
         })
     }
 
@@ -1092,6 +1135,7 @@ impl DirEntry {
             follow_link: true,
             depth: depth,
             ino: md.ino(),
+            dev: Some(md.dev()),
         })
     }
 }
@@ -1115,6 +1159,7 @@ impl Clone for DirEntry {
             follow_link: self.follow_link,
             depth: self.depth,
             ino: self.ino,
+            dev: self.dev,
         }
     }
 }
