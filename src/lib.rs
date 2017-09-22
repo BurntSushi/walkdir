@@ -31,7 +31,7 @@ links (not enabled by default).
 The following code recursively iterates over the directory given and prints
 the path for each entry:
 
-```rust,no_run
+```no_run
 use walkdir::WalkDir;
 # use walkdir::Error;
 
@@ -51,7 +51,7 @@ Or, if you'd like to iterate over all entries and ignore any errors that may
 arise, use [`filter_map`]. (e.g., This code below will silently skip directories
 that the owner of the running process does not have permission to access.)
 
-```rust,no_run
+```no_run
 use walkdir::WalkDir;
 
 for entry in WalkDir::new("foo").into_iter().filter_map(|e| e.ok()) {
@@ -65,7 +65,7 @@ for entry in WalkDir::new("foo").into_iter().filter_map(|e| e.ok()) {
 
 The same code as above, except [`follow_links`] is enabled:
 
-```rust,no_run
+```no_run
 use walkdir::WalkDir;
 # use walkdir::Error;
 
@@ -88,7 +88,7 @@ for entry in WalkDir::new("foo").follow_links(true) {
 This uses the [`filter_entry`] iterator adapter to avoid yielding hidden files
 and directories efficiently (i.e. without recursing into hidden directories):
 
-```rust,no_run
+```no_run
 use walkdir::{DirEntry, WalkDir};
 # use walkdir::Error;
 
@@ -187,7 +187,7 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 /// options. For example, this only shows entries with a depth of `1`, `2`
 /// or `3` (relative to `foo`):
 ///
-/// ```rust,no_run
+/// ```no_run
 /// use walkdir::WalkDir;
 /// # use walkdir::Error;
 ///
@@ -211,7 +211,7 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 /// this is the only directory yielded with depth `0`, it is easy to ignore it
 /// with the [`min_depth`] setting:
 ///
-/// ```rust,no_run
+/// ```no_run
 /// use walkdir::WalkDir;
 /// # use walkdir::Error;
 ///
@@ -413,7 +413,7 @@ impl WalkDir {
     /// With contents_first disabled (the default), the following code visits the
     /// directory tree in depth-first order:
     ///
-    /// ```rust,no_run
+    /// ```no_run
     /// use walkdir::WalkDir;
     ///
     /// for entry in WalkDir::new("foo") {
@@ -430,7 +430,7 @@ impl WalkDir {
     ///
     /// With contents_first enabled:
     ///
-    /// ```rust,no_run
+    /// ```no_run
     /// use walkdir::WalkDir;
     ///
     /// for entry in WalkDir::new("foo").contents_first(true) {
@@ -642,7 +642,7 @@ impl IntoIter {
     /// condition manually. For example, to skip hidden entries efficiently on
     /// unix systems:
     ///
-    /// ```rust,no_run
+    /// ```no_run
     /// use walkdir::{DirEntry, WalkDir};
     ///
     /// fn is_hidden(entry: &DirEntry) -> bool {
@@ -694,7 +694,7 @@ impl IntoIter {
     /// example, to skip hidden files and directories efficiently on unix
     /// systems:
     ///
-    /// ```rust,no_run
+    /// ```no_run
     /// use walkdir::{DirEntry, WalkDir};
     /// # use walkdir::Error;
     ///
@@ -1115,7 +1115,7 @@ impl<P> FilterEntry<IntoIter, P>
     /// example, to skip hidden files and directories efficiently on unix
     /// systems:
     ///
-    /// ```rust,no_run
+    /// ```no_run
     /// use walkdir::{DirEntry, WalkDir};
     /// # use walkdir::Error;
     ///
@@ -1164,7 +1164,7 @@ impl<P> FilterEntry<IntoIter, P>
     /// condition manually. For example, to skip hidden entries efficiently on
     /// unix systems:
     ///
-    /// ```rust,no_run
+    /// ```no_run
     /// use walkdir::{DirEntry, WalkDir};
     ///
     /// fn is_hidden(entry: &DirEntry) -> bool {
