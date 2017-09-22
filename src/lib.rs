@@ -41,10 +41,6 @@ for entry in WalkDir::new("foo") {
 }
 # Ok(())
 # }
-#
-# fn main() {
-#    try_main().unwrap();
-# }
 ```
 
 Or, if you'd like to iterate over all entries and ignore any errors that may
@@ -75,10 +71,6 @@ for entry in WalkDir::new("foo").follow_links(true) {
 }
 # Ok(())
 # }
-#
-# fn main() {
-#    try_main().unwrap();
-# }
 ```
 
 [`follow_links`]: struct.Walkdir.html#method.follow_links
@@ -106,10 +98,6 @@ for entry in walker.filter_entry(|e| !is_hidden(e)) {
 }
 # Ok(())
 # }
-#
-# fn main() {
-#     try_main().unwrap();
-}
 ```
 
 [`filter_entry`]: struct.IntoIter.html#method.filter_entry
@@ -197,10 +185,6 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 /// }
 /// # Ok(())
 /// # }
-/// #
-/// # fn main() {
-/// #    try_main().unwrap();
-/// # }
 /// ```
 ///
 /// [`IntoIterator`]: https://doc.rust-lang.org/stable/std/iter/trait.IntoIterator.html
@@ -220,10 +204,6 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 ///     println!("{}", entry?.path().display());
 /// }
 /// # Ok(())
-/// # }
-/// #
-/// # fn main() {
-/// #    try_main().unwrap();
 /// # }
 /// ```
 ///
@@ -713,10 +693,6 @@ impl IntoIter {
     /// }
     /// # Ok(())
     /// # }
-    /// #
-    /// # fn main() {
-    /// #    try_main().unwrap();
-    /// # }
     /// ```
     ///
     /// Note that the iterator will still yield errors for reading entries that
@@ -1133,10 +1109,6 @@ impl<P> FilterEntry<IntoIter, P>
     ///     println!("{}", entry?.path().display());
     /// }
     /// # Ok(())
-    /// # }
-    /// #
-    /// # fn main() {
-    /// #    try_main().unwrap();
     /// # }
     /// ```
     ///
