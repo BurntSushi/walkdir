@@ -30,7 +30,7 @@ walkdir = "1"
 The following code recursively iterates over the directory given and prints
 the path for each entry:
 
-```no_run
+```rust,no_run
 use walkdir::WalkDir;
 
 for entry in WalkDir::new("foo") {
@@ -43,7 +43,7 @@ Or, if you'd like to iterate over all entries and ignore any errors that may
 arise, use `filter_map`. (e.g., This code below will silently skip directories
 that the owner of the running process does not have permission to access.)
 
-```no_run
+```rust,no_run
 use walkdir::WalkDir;
 
 for entry in WalkDir::new("foo").into_iter().filter_map(|e| e.ok()) {
@@ -55,7 +55,7 @@ for entry in WalkDir::new("foo").into_iter().filter_map(|e| e.ok()) {
 
 The same code as above, except `follow_links` is enabled:
 
-```no_run
+```rust,no_run
 use walkdir::WalkDir;
 
 for entry in WalkDir::new("foo").follow_links(true) {
@@ -69,7 +69,7 @@ for entry in WalkDir::new("foo").follow_links(true) {
 This uses the `filter_entry` iterator adapter to avoid yielding hidden files
 and directories efficiently:
 
-```no_run
+```rust,no_run
 use walkdir::{DirEntry, WalkDir};
 
 fn is_hidden(entry: &DirEntry) -> bool {
