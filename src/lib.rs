@@ -1277,6 +1277,61 @@ impl Error {
         self.depth
     }
 
+    /// Inspect the underlying [`io::Error`] if there is one.
+    ///
+    /// [`None`] is returned if the [`Error`] doesn't correspond to an [`io::Error`].
+    /// This might happen, for example, when the error was produced because a cycle was found
+    /// in the directory tree while following symbolic links.
+    ///
+    /// This method returns a borrowed value that is bound to the lifetime of the [`Error`].
+    /// To obtain an owned value, the [`From`] trait can be used instead,
+    /// in which case if the [`Error`] being being converted doesn't correspond to an [`io::Error`],
+    /// a new one will be created.
+    ///
+    /// ```rust,no-run
+    /// use walkdir::WalkDir;
+    /// use std::io;
+    /// use std::path::Path;
+    ///
+    /// let mut it = WalkDir::new("foo").into_iter();
+    /// for entry in it {
+    ///     match entry {
+    ///         Ok(entry) => println!("{}", entry.path().display()),
+    ///         Err(err) => {
+    ///             println!("failed to access entry {}", err.path()
+    ///             .unwrap_or(Path::new(""))
+    ///             .display());
+    ///             if let Some(inner) = err.io_error() {
+    ///                 match inner.kind() {
+    ///                     io::ErrorKind::InvalidData => {
+    ///                         println!("entry contains invalid data:
+    ///                         {}", inner)
+    ///                     }
+    ///                     io::ErrorKind::PermissionDenied => {
+    ///                         println!("Missing permission to read entry:
+    ///                         {}", inner)
+    ///                     }
+    ///                     _ => println!("Unexpected error occurred:
+    ///                     {}", inner),
+    ///                 }
+    ///             }
+    ///             continue
+    ///         }
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// [`None`]: https://doc.rust-lang.org/stable/std/option/enum.Option.html#variant.None
+    /// [`io::Error`]: https://doc.rust-lang.org/stable/std/io/struct.Error.html
+    /// [`From`]: https://doc.rust-lang.org/stable/std/convert/trait.From.html
+    /// [`Error`]: struct.Error.html
+    pub fn io_error(&self) -> Option<&io::Error> {
+       match self.inner {
+            ErrorInner::Io { ref err, .. } => Some(err),
+            ErrorInner::Loop { .. } => None,
+       }
+    }
+
     fn from_path(depth: usize, pb: PathBuf, err: io::Error) -> Self {
         Error {
             depth: depth,
