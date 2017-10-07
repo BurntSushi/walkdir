@@ -896,7 +896,7 @@ impl DirEntry {
     /// # Errors
     ///
     /// Similar to [`std::fs::metadata`], returns errors for path values that the program does not
-    /// have permissions to access or if the path does not exist.  
+    /// have permissions to access or if the path does not exist.
     ///
     /// [`WalkDir`]: struct.WalkDir.html
     /// [`follow_links`]: struct.WalkDir.html#method.follow_links
@@ -1251,43 +1251,49 @@ impl Error {
 
     /// Inspect the underlying [`io::Error`] if there is one.
     ///
-    /// [`None`] is returned if the [`Error`] doesn't correspond to an [`io::Error`].
-    /// This might happen, for example, when the error was produced because a cycle was found
-    /// in the directory tree while following symbolic links.
+    /// [`None`] is returned if the [`Error`] doesn't correspond to an
+    /// [`io::Error`]. This might happen, for example, when the error was
+    /// produced because a cycle was found in the directory tree while
+    /// following symbolic links.
     ///
-    /// This method returns a borrowed value that is bound to the lifetime of the [`Error`].
-    /// To obtain an owned value, the [`From`] trait can be used instead,
-    /// in which case if the [`Error`] being being converted doesn't correspond to an [`io::Error`],
-    /// a new one will be created.
+    /// This method returns a borrowed value that is bound to the lifetime of
+    /// the [`Error`]. To obtain an owned value, the [`From`] trait can be used
+    /// instead, in which case if the [`Error`] being being converted doesn't
+    /// correspond to an [`io::Error`], a new one will be created.
+    ///
+    /// # Example
     ///
     /// ```rust,no-run
-    /// use walkdir::WalkDir;
     /// use std::io;
     /// use std::path::Path;
     ///
-    /// let mut it = WalkDir::new("foo").into_iter();
-    /// for entry in it {
+    /// use walkdir::WalkDir;
+    ///
+    /// for entry in WalkDir::new("foo") {
     ///     match entry {
     ///         Ok(entry) => println!("{}", entry.path().display()),
     ///         Err(err) => {
-    ///             println!("failed to access entry {}", err.path()
-    ///             .unwrap_or(Path::new(""))
-    ///             .display());
+    ///             let path = err.path().unwrap_or(Path::new("")).display();
+    ///             println!("failed to access entry {}", path);
     ///             if let Some(inner) = err.io_error() {
     ///                 match inner.kind() {
     ///                     io::ErrorKind::InvalidData => {
-    ///                         println!("entry contains invalid data:
-    ///                         {}", inner)
+    ///                         println!(
+    ///                             "entry contains invalid data: {}",
+    ///                             inner)
     ///                     }
     ///                     io::ErrorKind::PermissionDenied => {
-    ///                         println!("Missing permission to read entry:
-    ///                         {}", inner)
+    ///                         println!(
+    ///                             "Missing permission to read entry: {}",
+    ///                             inner)
     ///                     }
-    ///                     _ => println!("Unexpected error occurred:
-    ///                     {}", inner),
+    ///                     _ => {
+    ///                         println!(
+    ///                             "Unexpected error occurred: {}",
+    ///                             inner)
+    ///                     }
     ///                 }
     ///             }
-    ///             continue
     ///         }
     ///     }
     /// }
