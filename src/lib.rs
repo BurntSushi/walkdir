@@ -126,7 +126,7 @@ use std::path::{Path, PathBuf};
 use std::result;
 use std::vec;
 
-use same_file::is_same_file;
+use same_file::Handle;
 
 #[cfg(unix)]
 pub use unix::DirEntryExt;
@@ -356,6 +356,12 @@ impl WalkDir {
     ///
     /// Note that this value does not impact the number of system calls made by
     /// an exhausted iterator.
+    ///
+    /// # Platform behavior
+    ///
+    /// On Windows, if `follow_links` is enabled, then this limit is not
+    /// respected. In particular, the maximum number of file descriptors opened
+    /// is proportional to the depth of the directory tree traversed.
     pub fn max_open(mut self, mut n: usize) -> Self {
         if n == 0 {
             n = 1;
@@ -496,7 +502,7 @@ pub struct IntoIter {
     /// cases this stack is empty.
     ///
     /// [`follow_links`]: struct.WalkDir.html#method.follow_links
-    stack_path: Vec<PathBuf>,
+    stack_path: Vec<Ancestor>,
     /// An index into `stack_list` that points to the oldest open directory
     /// handle. If the maximum fd limit is reached and a new directory needs to
     /// be read, the handle at this index is closed before the new directory is
@@ -509,6 +515,52 @@ pub struct IntoIter {
     /// yielded after their contents has been fully yielded. This is only
     /// used when `contents_first` is enabled.
     deferred_dirs: Vec<DirEntry>,
+}
+
+/// An ancestor is an item in the directory tree traversed by walkdir, and is
+/// used to check for loops in the tree when traversing symlinks.
+#[derive(Debug)]
+struct Ancestor {
+    /// The path of this ancestor.
+    path: PathBuf,
+    /// An open file to this ancesor. This is only used on Windows where
+    /// opening a file handle appears to be quite expensive, so we choose to
+    /// cache it. This comes at the cost of not respecting the file descriptor
+    /// limit set by the user.
+    #[cfg(windows)]
+    handle: Handle,
+}
+
+impl Ancestor {
+    /// Create a new ancestor from the given directory path.
+    #[cfg(windows)]
+    fn new(dent: &DirEntry) -> io::Result<Ancestor> {
+        let handle = Handle::from_path(dent.path())?;
+        Ok(Ancestor {
+            path: dent.path().to_path_buf(),
+            handle: handle,
+        })
+    }
+
+    /// Create a new ancestor from the given directory path.
+    #[cfg(not(windows))]
+    fn new(dent: &DirEntry) -> io::Result<Ancestor> {
+        Ok(Ancestor { path: dent.path().to_path_buf() })
+    }
+
+    /// Returns true if and only if the given open file handle corresponds to
+    /// the same directory as this ancestor.
+    #[cfg(windows)]
+    fn is_same(&self, child: &Handle) -> io::Result<bool> {
+        Ok(child == &self.handle)
+    }
+
+    /// Returns true if and only if the given open file handle corresponds to
+    /// the same directory as this ancestor.
+    #[cfg(not(windows))]
+    fn is_same(&self, child: &Handle) -> io::Result<bool> {
+        Ok(child == &Handle::from_path(&self.path)?)
+    }
 }
 
 /// A sequence of unconsumed directory entries.
@@ -744,7 +796,7 @@ impl IntoIter {
             dent = itry!(self.follow(dent));
         }
         if dent.file_type().is_dir() {
-            self.push(&dent);
+            itry!(self.push(&dent));
         }
         if dent.file_type().is_dir() && self.opts.contents_first {
             self.deferred_dirs.push(dent);
@@ -771,7 +823,7 @@ impl IntoIter {
         None
     }
 
-    fn push(&mut self, dent: &DirEntry) {
+    fn push(&mut self, dent: &DirEntry) -> Result<()> {
         // Make room for another open file descriptor if we've hit the max.
         let free = self.stack_list
             .len()
@@ -805,8 +857,12 @@ impl IntoIter {
         }
         self.stack_list.push(list);
         if self.opts.follow_links {
-            self.stack_path.push(dent.path().to_path_buf());
+            let ancestor = Ancestor::new(&dent).map_err(|err| {
+                Error::from_io(self.depth, err)
+            })?;
+            self.stack_path.push(ancestor);
         }
+        Ok(())
     }
 
     fn pop(&mut self) {
@@ -832,15 +888,18 @@ impl IntoIter {
     }
 
     fn check_loop<P: AsRef<Path>>(&self, child: P) -> Result<()> {
+        let hchild = Handle::from_path(&child).map_err(|err| {
+            Error::from_io(self.depth, err)
+        })?;
         for ancestor in self.stack_path.iter().rev() {
-            let same = is_same_file(ancestor, &child).map_err(|err| {
+            let is_same = ancestor.is_same(&hchild).map_err(|err| {
                 Error::from_io(self.depth, err)
             })?;
-            if same {
+            if is_same {
                 return Err(Error {
                     depth: self.depth,
                     inner: ErrorInner::Loop {
-                        ancestor: ancestor.to_path_buf(),
+                        ancestor: ancestor.path.to_path_buf(),
                         child: child.as_ref().to_path_buf(),
                     },
                 });
