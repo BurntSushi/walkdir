@@ -821,22 +821,21 @@ impl IntoIter {
     }
 
     fn follow(&self, mut dent: DirEntry) -> Result<DirEntry> {
-        dent = try!(DirEntry::from_link(self.depth,
-                                        dent.path().to_path_buf()));
+        dent = DirEntry::from_link(self.depth, dent.path().to_path_buf())?;
         // The only way a symlink can cause a loop is if it points
         // to a directory. Otherwise, it always points to a leaf
         // and we can omit any loop checks.
         if dent.file_type().is_dir() {
-            try!(self.check_loop(dent.path()));
+            self.check_loop(dent.path())?;
         }
         Ok(dent)
     }
 
     fn check_loop<P: AsRef<Path>>(&self, child: P) -> Result<()> {
         for ancestor in self.stack_path.iter().rev() {
-            let same = try!(is_same_file(ancestor, &child).map_err(|err| {
+            let same = is_same_file(ancestor, &child).map_err(|err| {
                 Error::from_io(self.depth, err)
-            }));
+            })?;
             if same {
                 return Err(Error {
                     depth: self.depth,
@@ -976,9 +975,9 @@ impl DirEntry {
 
     #[cfg(not(unix))]
     fn from_entry(depth: usize, ent: &fs::DirEntry) -> Result<DirEntry> {
-        let ty = try!(ent.file_type().map_err(|err| {
+        let ty = ent.file_type().map_err(|err| {
             Error::from_path(depth, ent.path(), err)
-        }));
+        })?;
         Ok(DirEntry {
             path: ent.path(),
             ty: ty,
@@ -991,9 +990,9 @@ impl DirEntry {
     fn from_entry(depth: usize, ent: &fs::DirEntry) -> Result<DirEntry> {
         use std::os::unix::fs::DirEntryExt;
 
-        let ty = try!(ent.file_type().map_err(|err| {
+        let ty = ent.file_type().map_err(|err| {
             Error::from_path(depth, ent.path(), err)
-        }));
+        })?;
         Ok(DirEntry {
             path: ent.path(),
             ty: ty,
@@ -1005,9 +1004,9 @@ impl DirEntry {
 
     #[cfg(not(unix))]
     fn from_link(depth: usize, pb: PathBuf) -> Result<DirEntry> {
-        let md = try!(fs::metadata(&pb).map_err(|err| {
+        let md = fs::metadata(&pb).map_err(|err| {
             Error::from_path(depth, pb.clone(), err)
-        }));
+        })?;
         Ok(DirEntry {
             path: pb,
             ty: md.file_type(),
@@ -1020,9 +1019,9 @@ impl DirEntry {
     fn from_link(depth: usize, pb: PathBuf) -> Result<DirEntry> {
         use std::os::unix::fs::MetadataExt;
 
-        let md = try!(fs::metadata(&pb).map_err(|err| {
+        let md = fs::metadata(&pb).map_err(|err| {
             Error::from_path(depth, pb.clone(), err)
-        }));
+        })?;
         Ok(DirEntry {
             path: pb,
             ty: md.file_type(),
