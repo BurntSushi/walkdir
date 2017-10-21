@@ -17,7 +17,7 @@ travis-ci = { repository = "BurntSushi/walkdir" }
 appveyor = { repository = "BurntSushi/walkdir" }
 
 [dependencies]
-same-file = "0.1.1"
+same-file = "1"
 
 [target.'cfg(windows)'.dependencies]
 kernel32-sys = "0.2"
