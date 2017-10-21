@@ -15,10 +15,10 @@ walkdir = "1"
 
 # From the top
 
-The [`WalkDir`] type builds iterators. The [`DirEntry`] type describes values yielded by the iterator.
-Finally, the [`Error`] type is a small wrapper around [`std::io::Error`] with
-additional information, such as if a loop was detected while following symbolic
-links (not enabled by default).
+The [`WalkDir`] type builds iterators. The [`DirEntry`] type describes values
+yielded by the iterator. Finally, the [`Error`] type is a small wrapper around
+[`std::io::Error`] with additional information, such as if a loop was detected
+while following symbolic links (not enabled by default).
 
 [`WalkDir`]: struct.Walkdir.html
 [`DirEntry`]: struct.DirEntry.html
@@ -42,9 +42,10 @@ for entry in WalkDir::new("foo") {
 # }
 ```
 
-Or, if you'd like to iterate over all entries and ignore any errors that may
-arise, use [`filter_map`]. (e.g., This code below will silently skip directories
-that the owner of the running process does not have permission to access.)
+Or, if you'd like to iterate over all entries and ignore any errors that
+may arise, use [`filter_map`]. (e.g., This code below will silently skip
+directories that the owner of the running process does not have permission to
+access.)
 
 ```no_run
 use walkdir::WalkDir;
@@ -105,11 +106,15 @@ for entry in walker.filter_entry(|e| !is_hidden(e)) {
 #![doc(html_root_url = "https://docs.rs/walkdir/1.0.7")]
 #![deny(missing_docs)]
 
-#[cfg(windows)] extern crate kernel32;
-#[cfg(windows)] extern crate winapi;
-#[cfg(test)] extern crate quickcheck;
-#[cfg(test)] extern crate rand;
+#[cfg(windows)]
+extern crate kernel32;
+#[cfg(test)]
+extern crate quickcheck;
+#[cfg(test)]
+extern crate rand;
 extern crate same_file;
+#[cfg(windows)]
+extern crate winapi;
 
 use std::cmp::{Ordering, min};
 use std::error;
@@ -154,10 +159,10 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 /// A builder to create an iterator for recursively walking a directory.
 ///
 /// Results are returned in depth first fashion, with directories yielded
-/// before their contents. If [`contents_first`] is true, contents are yielded
-/// before their directories. The order is unspecified but if [`sort_by`] is given,
-/// directory entries are sorted according to this function. Directory entries
-///`.` and `..` are always omitted.
+///before their contents. If [`contents_first`] is true, contents are yielded
+///before their directories. The order is unspecified but if [`sort_by`] is
+///given, directory entries are sorted according to this function. Directory
+///entries `.` and `..` are always omitted.
 ///
 /// If an error occurs at any point during iteration, then it is returned in
 /// place of its corresponding directory entry and iteration continues as
@@ -175,8 +180,8 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 /// to use iterator adapters such as [`filter_entry`].
 ///
 /// Idiomatic use of this type should use method chaining to set desired
-/// options. For example, this only shows entries with a depth of `1`, `2`
-/// or `3` (relative to `foo`):
+/// options. For example, this only shows entries with a depth of `1`, `2` or
+/// `3` (relative to `foo`):
 ///
 /// ```no_run
 /// use walkdir::WalkDir;
@@ -235,12 +240,14 @@ struct WalkDirOptions {
     max_open: usize,
     min_depth: usize,
     max_depth: usize,
-    sorter: Option<Box<FnMut(&DirEntry,&DirEntry) -> Ordering + Send + Sync + 'static>>,
+    sorter: Option<Box<
+        FnMut(&DirEntry,&DirEntry) -> Ordering + Send + Sync + 'static
+    >>,
     contents_first: bool,
 }
 
 impl fmt::Debug for WalkDirOptions {
-    fn fmt(&self, f: &mut fmt::Formatter) -> ::std::result::Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
         let sorter_str = if self.sorter.is_some() {
             // FnMut isn't `Debug`
             "Some(...)"
@@ -365,7 +372,8 @@ impl WalkDir {
     /// WalkDir::new("foo").sort_by(|a,b| a.file_name().cmp(b.file_name()));
     /// ```
     pub fn sort_by<F>(mut self, cmp: F) -> Self
-            where F: FnMut(&DirEntry, &DirEntry) -> Ordering + Send + Sync + 'static {
+    where F: FnMut(&DirEntry, &DirEntry) -> Ordering + Send + Sync + 'static
+    {
         self.opts.sorter = Some(Box::new(cmp));
         self
     }
@@ -393,8 +401,8 @@ impl WalkDir {
     ///   def/
     /// ```
     ///
-    /// With contents_first disabled (the default), the following code visits the
-    /// directory tree in depth-first order:
+    /// With contents_first disabled (the default), the following code visits
+    /// the directory tree in depth-first order:
     ///
     /// ```no_run
     /// use walkdir::WalkDir;
@@ -454,8 +462,8 @@ impl IntoIterator for WalkDir {
 ///
 /// A value with this type must be constructed with the [`WalkDir`] type, which
 /// uses a builder pattern to set options such as min/max depth, max open file
-/// descriptors and whether the iterator should follow symbolic links.  After constructing
-/// a `WalkDir`, call [`.into_iter()`] at the end of the chain.
+/// descriptors and whether the iterator should follow symbolic links. After
+/// constructing a `WalkDir`, call [`.into_iter()`] at the end of the chain.
 ///
 /// The order of elements yielded by this iterator is unspecified.
 ///
@@ -478,15 +486,15 @@ pub struct IntoIter {
     stack_list: Vec<DirList>,
     /// A stack of file paths.
     ///
-    /// This is *only* used when [`follow_links`] is enabled. In all other cases
-    /// this stack is empty.
+    /// This is *only* used when [`follow_links`] is enabled. In all other
+    /// cases this stack is empty.
     ///
     /// [`follow_links`]: struct.WalkDir.html#method.follow_links
     stack_path: Vec<PathBuf>,
     /// An index into `stack_list` that points to the oldest open directory
-    /// handle. If the maximum fd limit is reached and a new directory needs
-    /// to be read, the handle at this index is closed before the new directory
-    /// is opened.
+    /// handle. If the maximum fd limit is reached and a new directory needs to
+    /// be read, the handle at this index is closed before the new directory is
+    /// opened.
     oldest_opened: usize,
     /// The current depth of iteration (the length of the stack at the
     /// beginning of each iteration).
@@ -512,8 +520,8 @@ enum DirList {
     ///
     /// This includes the depth of the handle itself.
     ///
-    /// If there was an error with the initial [`fs::read_dir`] call, then it is
-    /// stored here. (We use an [`Option<...>`] to make yielding the error
+    /// If there was an error with the initial [`fs::read_dir`] call, then it
+    /// is stored here. (We use an [`Option<...>`] to make yielding the error
     /// exactly once simpler.)
     ///
     /// [`fs::read_dir`]: https://doc.rust-lang.org/stable/std/fs/fn.read_dir.html
@@ -532,8 +540,8 @@ enum DirList {
 ///
 /// # Differences with [`std::fs::DirEntry`]
 ///
-/// This type mostly mirrors the type by the same name in [`std::fs`]. There are
-/// some differences however:
+/// This type mostly mirrors the type by the same name in [`std::fs`]. There
+/// are some differences however:
 ///
 /// * All recursive directory iterators must inspect the entry's type.
 /// Therefore, the value is stored and its access is guaranteed to be cheap and
@@ -572,8 +580,8 @@ impl Iterator for IntoIter {
     ///
     /// # Errors
     ///
-    /// If the iterator fails to retrieve the next value, this method returns an error value.
-    /// The error will be wrapped in an Option::Some.
+    /// If the iterator fails to retrieve the next value, this method returns
+    /// an error value. The error will be wrapped in an Option::Some.
     fn next(&mut self) -> Option<Result<DirEntry>> {
         if let Some(start) = self.start.take() {
             let dent = itry!(DirEntry::from_link(0, start));
@@ -592,8 +600,9 @@ impl Iterator for IntoIter {
                 self.pop();
                 continue;
             }
-            // Unwrap is safe here because we've verified above that `self.stack_list` is not empty
-            match self.stack_list.last_mut().expect("This is a bug in walkdir").next() {
+            // Unwrap is safe here because we've verified above that
+            // `self.stack_list` is not empty
+            match self.stack_list.last_mut().expect("bug in walkdir").next() {
                 None => self.pop(),
                 Some(Err(err)) => return Some(Err(err)),
                 Some(Ok(dent)) => {
@@ -704,11 +713,17 @@ impl IntoIter {
     /// Note that entries skipped with [`min_depth`] and [`max_depth`] are not
     /// passed to this predicate.
     ///
+    /// Note that if the iterator has `contents_first` enabled, then this
+    /// method is no different than calling the standard `Iterator::filter`
+    /// method (because directory entries are yielded after they've been
+    /// descended into).
+    ///
     /// [`skip_current_dir`]: #method.skip_current_dir
     /// [`min_depth`]: struct.WalkDir.html#method.min_depth
     /// [`max_depth`]: struct.WalkDir.html#method.max_depth
     pub fn filter_entry<P>(self, predicate: P) -> FilterEntry<Self, P>
-            where Self: Sized, P: FnMut(&DirEntry) -> bool {
+    where P: FnMut(&DirEntry) -> bool
+    {
         FilterEntry { it: self, predicate: predicate }
     }
 
@@ -725,8 +740,10 @@ impl IntoIter {
         if dent.file_type().is_dir() && self.opts.contents_first {
             self.deferred_dirs.push(dent);
             None
+        } else if self.skippable() {
+            None
         } else {
-            if self.skippable() { None } else { Some(Ok(dent)) }
+            Some(Ok(dent))
         }
     }
 
@@ -735,7 +752,8 @@ impl IntoIter {
             if self.depth < self.deferred_dirs.len() {
                 // Unwrap is safe here because we've guaranteed that
                 // `self.deferred_dirs.len()` can never be less than 1
-                let deferred : DirEntry = self.deferred_dirs.pop().expect("This is a bug in walkdir");
+                let deferred: DirEntry = self.deferred_dirs.pop()
+                    .expect("bug in walkdir");
                 if !self.skippable() {
                     return Some(deferred);
                 }
@@ -746,11 +764,15 @@ impl IntoIter {
 
     fn push(&mut self, dent: &DirEntry) {
         // Make room for another open file descriptor if we've hit the max.
-        if self.stack_list.len().checked_sub(self.oldest_opened).unwrap() == self.opts.max_open {
+        let free = self.stack_list
+            .len()
+            .checked_sub(self.oldest_opened).unwrap();
+        if free == self.opts.max_open {
             self.stack_list[self.oldest_opened].close();
-            // Unwrap is safe here because self.oldest_opened is guaranteed to never be
-            // greater than `self.stack_list.len()`, which implies that the subtraction won't
-            // underflow and that adding 1 will never overflow.
+            // Unwrap is safe here because self.oldest_opened is guaranteed to
+            // never be greater than `self.stack_list.len()`, which implies
+            // that the subtraction won't underflow and that adding 1 will
+            // never overflow.
             self.oldest_opened = self.oldest_opened.checked_add(1).unwrap();
         }
         // Open a handle to reading the directory's entries.
@@ -859,9 +881,9 @@ impl DirEntry {
     ///
     /// Note that this *always* returns the path reported by the underlying
     /// directory entry, even when symbolic links are followed. To get the
-    /// target path, use [`path_is_symlink`] to (cheaply) check if
-    /// this entry corresponds to a symbolic link, and [`std::fs::read_link`] to
-    /// resolve the target.
+    /// target path, use [`path_is_symlink`] to (cheaply) check if this entry
+    /// corresponds to a symbolic link, and [`std::fs::read_link`] to resolve
+    /// the target.
     ///
     /// [`WalkDir::new`]: struct.WalkDir.html#method.new
     /// [`path_is_symlink`]: struct.DirEntry.html#method.path_is_symlink
@@ -898,8 +920,9 @@ impl DirEntry {
     ///
     /// # Errors
     ///
-    /// Similar to [`std::fs::metadata`], returns errors for path values that the program does not
-    /// have permissions to access or if the path does not exist.
+    /// Similar to [`std::fs::metadata`], returns errors for path values that
+    /// the program does not have permissions to access or if the path does not
+    /// exist.
     ///
     /// [`WalkDir`]: struct.WalkDir.html
     /// [`follow_links`]: struct.WalkDir.html#method.follow_links
@@ -1030,14 +1053,15 @@ impl fmt::Debug for DirEntry {
     }
 }
 
-/// A recursive directory iterator that skips entries.  Returned by calling [`.filter_entry()`] on
-/// an `IntoIter`, which is formed by calling [`.into_iter()`] on a `WalkDir`.
+/// A recursive directory iterator that skips entries. Returned by calling
+/// [`.filter_entry()`] on an `IntoIter`, which is formed by calling
+/// [`.into_iter()`] on a `WalkDir`.
 ///
 /// Directories that fail the predicate `P` are skipped. Namely, they are
 /// never yielded and never descended into.
 ///
-/// Entries that are skipped with the [`min_depth`] and [`max_depth`] options are
-/// not passed through this filter.
+/// Entries that are skipped with the [`min_depth`] and [`max_depth`] options
+/// are not passed through this filter.
 ///
 /// If opening a handle to a directory resulted in an error, then it is yielded
 /// and no corresponding call to the predicate is made.
@@ -1056,14 +1080,16 @@ pub struct FilterEntry<I, P> {
 }
 
 impl<P> Iterator for FilterEntry<IntoIter, P>
-              where P: FnMut(&DirEntry) -> bool {
+where P: FnMut(&DirEntry) -> bool
+{
     type Item = Result<DirEntry>;
+
     /// Advances the iterator and returns the next value.
     ///
     /// # Errors
     ///
-    /// If the iterator fails to retrieve the next value, this method returns an error value.
-    /// The error will be wrapped in an Option::Some.
+    /// If the iterator fails to retrieve the next value, this method returns
+    /// an error value. The error will be wrapped in an `Option::Some`.
     fn next(&mut self) -> Option<Result<DirEntry>> {
         loop {
             let dent = match self.it.next() {
@@ -1081,8 +1107,7 @@ impl<P> Iterator for FilterEntry<IntoIter, P>
     }
 }
 
-impl<P> FilterEntry<IntoIter, P>
-        where P: FnMut(&DirEntry) -> bool {
+impl<P> FilterEntry<IntoIter, P> where P: FnMut(&DirEntry) -> bool {
     /// Yields only entries which satisfy the given predicate and skips
     /// descending into directories that do not satisfy the given predicate.
     ///
@@ -1120,6 +1145,11 @@ impl<P> FilterEntry<IntoIter, P>
     ///
     /// Note that entries skipped with [`min_depth`] and [`max_depth`] are not
     /// passed to this predicate.
+    ///
+    /// Note that if the iterator has `contents_first` enabled, then this
+    /// method is no different than calling the standard `Iterator::filter`
+    /// method (because directory entries are yielded after they've been
+    /// descended into).
     ///
     /// [`skip_current_dir`]: #method.skip_current_dir
     /// [`min_depth`]: struct.WalkDir.html#method.min_depth
@@ -1178,8 +1208,8 @@ impl<P> FilterEntry<IntoIter, P>
 
 /// An error produced by recursively walking a directory.
 ///
-/// This error type is a light wrapper around [`std::io::Error`]. In particular,
-/// it adds the following information:
+/// This error type is a light wrapper around [`std::io::Error`]. In
+/// particular, it adds the following information:
 ///
 /// * The depth at which the error occurred in the file tree, relative to the
 /// root.
@@ -1242,8 +1272,8 @@ impl Error {
 
     /// Returns the depth at which this error occurred relative to the root.
     ///
-    /// The smallest depth is `0` and always corresponds to the path given
-    /// to the [`new`] function on [`WalkDir`]. Its direct descendents have depth
+    /// The smallest depth is `0` and always corresponds to the path given to
+    /// the [`new`] function on [`WalkDir`]. Its direct descendents have depth
     /// `1`, and their descendents have depth `2`, and so on.
     ///
     /// [`new`]: struct.WalkDir.html#method.new
