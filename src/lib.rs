@@ -1116,9 +1116,10 @@ impl fmt::Debug for DirEntry {
     }
 }
 
-/// A recursive directory iterator that skips entries. Returned by calling
-/// [`.filter_entry()`] on an `IntoIter`, which is formed by calling
-/// [`.into_iter()`] on a `WalkDir`.
+/// A recursive directory iterator that skips entries.
+///
+/// Values of this type are created by calling [`.filter_entry()`] on an
+/// `IntoIter`, which is formed by calling [`.into_iter()`] on a `WalkDir`.
 ///
 /// Directories that fail the predicate `P` are skipped. Namely, they are
 /// never yielded and never descended into.
