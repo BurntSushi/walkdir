@@ -164,16 +164,17 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 /// A builder to create an iterator for recursively walking a directory.
 ///
 /// Results are returned in depth first fashion, with directories yielded
-///before their contents. If [`contents_first`] is true, contents are yielded
-///before their directories. The order is unspecified but if [`sort_by`] is
-///given, directory entries are sorted according to this function. Directory
-///entries `.` and `..` are always omitted.
+/// before their contents. If [`contents_first`] is true, contents are yielded
+/// before their directories. The order is unspecified but if [`sort_by`] is
+/// given, directory entries are sorted according to this function. Directory
+/// entries `.` and `..` are always omitted.
 ///
 /// If an error occurs at any point during iteration, then it is returned in
 /// place of its corresponding directory entry and iteration continues as
-/// normal. If an error occurs while opening a directory for reading, it
-/// is skipped. Iteration may be stopped at any time. When the iterator is
-/// destroyed, all resources associated with it are freed.
+/// normal. If an error occurs while opening a directory for reading, then it
+/// is not descended into (but the error is still yielded by the iterator).
+/// Iteration may be stopped at any time. When the iterator is destroyed, all
+/// resources associated with it are freed.
 ///
 /// [`contents_first`]: struct.WalkDir.html#method.contents_first
 /// [`sort_by`]: struct.WalkDir.html#method.sort_by
@@ -543,7 +544,10 @@ enum DirList {
 /// This is the type of value that is yielded from the iterators defined in
 /// this crate.
 ///
-/// # Differences with [`std::fs::DirEntry`]
+/// On Unix systems, this type implements the [`DirEntryExt`] trait, which
+/// provides efficient access to the inode number of the directory entry.
+///
+/// # Differences with `std::fs::DirEntry`
 ///
 /// This type mostly mirrors the type by the same name in [`std::fs`]. There
 /// are some differences however:
@@ -556,11 +560,11 @@ enum DirList {
 /// operations except for [`path`] operate on the link target. Otherwise, all
 /// operations operate on the symbolic link.
 ///
-/// [`std::fs::DirEntry`]: https://doc.rust-lang.org/stable/std/fs/struct.DirEntry.html
 /// [`std::fs`]: https://doc.rust-lang.org/stable/std/fs/index.html
 /// [`path`]: #method.path
 /// [`file_name`]: #method.file_name
 /// [`follow_links`]: struct.WalkDir.html#method.follow_links
+/// [`DirEntryExt`]: trait.DirEntryExt.html
 pub struct DirEntry {
     /// The path as reported by the [`fs::ReadDir`] iterator (even if it's a
     /// symbolic link).
