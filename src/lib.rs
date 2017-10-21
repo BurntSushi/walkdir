@@ -10,7 +10,7 @@ To use this crate, add `walkdir` as a dependency to your project's
 
 ```text
 [dependencies]
-walkdir = "1"
+walkdir = "2"
 ```
 
 # From the top
@@ -103,7 +103,7 @@ for entry in walker.filter_entry(|e| !is_hidden(e)) {
 [`filter_entry`]: struct.IntoIter.html#method.filter_entry
 */
 
-#![doc(html_root_url = "https://docs.rs/walkdir/1.0.7")]
+#![doc(html_root_url = "https://docs.rs/walkdir/2.0.0")]
 #![deny(missing_docs)]
 
 #[cfg(windows)]

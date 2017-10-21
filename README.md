@@ -22,7 +22,7 @@ To use this crate, add `walkdir` as a dependency to your project's
 
 ```
 [dependencies]
-walkdir = "1"
+walkdir = "2"
 ```
 
 ### Example
