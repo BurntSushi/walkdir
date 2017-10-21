@@ -49,10 +49,10 @@ fn main() {
     let maxd = args.flag_max_depth.unwrap_or(::std::usize::MAX);
     let dir = args.arg_dir.clone().unwrap_or(".".to_owned());
     let mut walkdir = WalkDir::new(dir)
-                     .max_open(args.flag_fd_max)
-                     .follow_links(args.flag_follow_links)
-                     .min_depth(mind)
-                     .max_depth(maxd);
+        .max_open(args.flag_fd_max)
+        .follow_links(args.flag_follow_links)
+        .min_depth(mind)
+        .max_depth(maxd);
     if args.flag_sort {
         walkdir = walkdir.sort_by(|a,b| a.file_name().cmp(b.file_name()));
     }

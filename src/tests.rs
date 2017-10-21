@@ -71,7 +71,7 @@ impl Tree {
         for result in f(WalkDir::new(p).contents_first(true)) {
             let dentry = try!(result);
 
-            let tree = 
+            let tree =
             if dentry.file_type().is_dir() {
                 let any_contents = contents_of_dir_at_depth.remove(
                     &(dentry.depth+1));
@@ -90,7 +90,7 @@ impl Tree {
                     dentry.depth).or_insert(vec!()).push(tree);
             min_depth = cmp::min(min_depth, dentry.depth);
         }
-        Ok(Tree::Dir(top_level_path, 
+        Ok(Tree::Dir(top_level_path,
                 contents_of_dir_at_depth.remove(&min_depth)
                 .unwrap_or_default()))
     }
@@ -761,13 +761,16 @@ fn walk_dir_sort() {
     let tmp_path = tmp.path();
     let tmp_len = tmp_path.to_str().unwrap().len();
     exp.create_in(tmp_path).unwrap();
-    let it = WalkDir::new(tmp_path).sort_by(|a,b| a.file_name().cmp(b.file_name())).into_iter();
+    let it = WalkDir::new(tmp_path)
+        .sort_by(|a,b| a.file_name().cmp(b.file_name()))
+        .into_iter();
     let got = it.map(|d| {
         let path = d.unwrap();
         let path = &path.path().to_str().unwrap()[tmp_len..];
         path.replace("\\", "/")
     }).collect::<Vec<String>>();
-    assert_eq!(got,
+    assert_eq!(
+        got,
         ["", "/foo", "/foo/abc", "/foo/abc/fit", "/foo/bar", "/foo/faz"]);
 }
 
@@ -782,14 +785,17 @@ fn walk_dir_sort_small_fd_max() {
     let tmp_path = tmp.path();
     let tmp_len = tmp_path.to_str().unwrap().len();
     exp.create_in(tmp_path).unwrap();
-    let it =
-        WalkDir::new(tmp_path).max_open(1).sort_by(|a,b| a.file_name().cmp(b.file_name())).into_iter();
+    let it = WalkDir::new(tmp_path)
+        .max_open(1)
+        .sort_by(|a,b| a.file_name().cmp(b.file_name()))
+        .into_iter();
     let got = it.map(|d| {
         let path = d.unwrap();
         let path = &path.path().to_str().unwrap()[tmp_len..];
         path.replace("\\", "/")
     }).collect::<Vec<String>>();
-    assert_eq!(got,
+    assert_eq!(
+        got,
         ["", "/foo", "/foo/abc", "/foo/abc/fit", "/foo/bar", "/foo/faz"]);
 }
 
