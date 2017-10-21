@@ -128,8 +128,13 @@ use std::vec;
 
 use same_file::is_same_file;
 
-#[cfg(unix)] mod unix;
-#[cfg(test)] mod tests;
+#[cfg(unix)]
+pub use unix::DirEntryExt;
+
+#[cfg(test)]
+mod tests;
+#[cfg(unix)]
+mod unix;
 
 /// Like try, but for iterators that return [`Option<Result<_, _>>`].
 ///
