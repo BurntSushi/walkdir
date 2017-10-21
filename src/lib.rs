@@ -1,4 +1,3 @@
-#![doc(html_root_url = "https://docs.rs/walkdir/1.0.7")]
 /*!
 Crate `walkdir` provides an efficient and cross platform implementation
 of recursive directory traversal. Several options are exposed to control
@@ -102,6 +101,10 @@ for entry in walker.filter_entry(|e| !is_hidden(e)) {
 
 [`filter_entry`]: struct.IntoIter.html#method.filter_entry
 */
+
+#![doc(html_root_url = "https://docs.rs/walkdir/1.0.7")]
+#![deny(missing_docs)]
+
 #[cfg(windows)] extern crate kernel32;
 #[cfg(windows)] extern crate winapi;
 #[cfg(test)] extern crate quickcheck;
@@ -856,12 +859,12 @@ impl DirEntry {
     ///
     /// Note that this *always* returns the path reported by the underlying
     /// directory entry, even when symbolic links are followed. To get the
-    /// target path, use [`path_is_symbolic_link`] to (cheaply) check if
+    /// target path, use [`path_is_symlink`] to (cheaply) check if
     /// this entry corresponds to a symbolic link, and [`std::fs::read_link`] to
     /// resolve the target.
     ///
     /// [`WalkDir::new`]: struct.WalkDir.html#method.new
-    /// [`path_is_symbolic_link`]: struct.DirEntry.html#method.path_is_symbolic_link
+    /// [`path_is_symlink`]: struct.DirEntry.html#method.path_is_symlink
     /// [`std::fs::read_link`]: https://doc.rust-lang.org/stable/std/fs/fn.read_link.html
     pub fn path(&self) -> &Path {
         &self.path
@@ -877,7 +880,7 @@ impl DirEntry {
     /// [`path`]: struct.DirEntry.html#method.path
     /// [`follow_links`]: struct.WalkDir.html#method.follow_links
     /// [`std::fs::read_link(entry.path())`]: https://doc.rust-lang.org/stable/std/fs/fn.read_link.html
-    pub fn path_is_symbolic_link(&self) -> bool {
+    pub fn path_is_symlink(&self) -> bool {
         self.ty.is_symlink() || self.follow_link
     }
 
