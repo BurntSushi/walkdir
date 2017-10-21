@@ -1,5 +1,7 @@
 extern crate docopt;
-extern crate rustc_serialize;
+extern crate serde;
+#[macro_use]
+extern crate serde_derive;
 extern crate walkdir;
 
 use std::io::{self, Write};
@@ -23,7 +25,7 @@ Options:
     -d, --depth          Show directory's contents before the directory itself.
 ";
 
-#[derive(Debug, RustcDecodable)]
+#[derive(Debug, Deserialize)]
 #[allow(dead_code)]
 struct Args {
     arg_dir: Option<String>,
@@ -40,8 +42,9 @@ struct Args {
 macro_rules! wout { ($($tt:tt)*) => { {writeln!($($tt)*)}.unwrap() } }
 
 fn main() {
-    let args: Args = Docopt::new(USAGE).and_then(|d| d.decode())
-                                       .unwrap_or_else(|e| e.exit());
+    let args: Args = Docopt::new(USAGE)
+        .and_then(|d| d.deserialize())
+        .unwrap_or_else(|e| e.exit());
     let mind = args.flag_min_depth.unwrap_or(0);
     let maxd = args.flag_max_depth.unwrap_or(::std::usize::MAX);
     let dir = args.arg_dir.clone().unwrap_or(".".to_owned());
