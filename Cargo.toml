@@ -21,7 +21,7 @@ same-file = "1"
 
 [dev-dependencies]
 docopt = "0.8"
-quickcheck = { version = "0.4", default-features = false }
+quickcheck = { version = "0.6", default-features = false }
 rand = "0.3"
 serde = "1"
 serde_derive = "1"
