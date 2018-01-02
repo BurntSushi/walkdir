@@ -123,10 +123,10 @@ use std::result;
 use std::vec;
 
 use same_file::Handle;
-
 #[cfg(unix)]
 pub use unix::DirEntryExt;
-
+#[cfg(windows)]
+use winapi::fileapi::BY_HANDLE_FILE_INFORMATION;
 #[cfg(test)]
 mod tests;
 #[cfg(unix)]
@@ -455,11 +455,18 @@ impl WalkDir {
     }
 
     /// Do not cross filesystem boundaries.
+    /// This stores the device number of the starting
+    /// location.
     pub fn same_file_system(mut self, yes: bool) -> Self {
         self.opts.same_file_system = yes;
-        self.opts.root_device = self.get_root_device();
+        if self.opts.same_file_system == true {
+            self.opts.root_device = self.get_root_device();
+        } else {
+            self.opts.root_device = None;
+        }
         self
     }
+
     #[cfg(unix)]
     fn get_root_device(&self) -> Option<u64> {
         use std::os::unix::fs::MetadataExt;
@@ -469,9 +476,13 @@ impl WalkDir {
         }
     }
 
-    #[cfg(not(unix))]
-    fn get_root_device(self) -> Option<u64> {
-        None
+    #[cfg(windows)]
+    fn get_root_device(&self) -> Option<u64> {
+        match windows::windows_file_handle_info(&self.root) {
+            // panic if we can't find the root device when called with --same-file-system
+            Ok(i) => Some(i.dwVolumeSerialNumber as u64),
+            Err(i) => panic!("Error while looking up starting filesystem: {:?}", i),
+        }
     }
 }
 
@@ -655,9 +666,11 @@ pub struct DirEntry {
     /// The underlying inode number (Unix only).
     #[cfg(unix)]
     ino: u64,
-    /// The underlying device number (Unix only).
-    #[cfg(unix)]
-    dev: Option<u64>,
+    /// Retrieved while determining the file system.
+    /// Save it with the dir entry if we are getting this info
+    /// [`winapi::fileapi::BY_HANDLE_FILE_INFORMATION`]: https://retep998.github.io/doc/winapi/fileapi/struct.BY_HANDLE_FILE_INFORMATION.html
+    #[cfg(windows)]
+    by_handle_file_information: Option<BY_HANDLE_FILE_INFORMATION>,
 }
 
 impl Iterator for IntoIter {
@@ -813,34 +826,33 @@ impl IntoIter {
         FilterEntry { it: self, predicate: predicate }
     }
 
-    fn is_same_file_system(&self, dent: &DirEntry) -> bool {
+    #[cfg(unix)]
+    fn is_same_file_system(&self, dent: &DirEntry) -> Result<bool> {
         use std::os::unix::fs::MetadataExt;
-        if let Ok(metadata) = dent.metadata() {
-            if metadata.dev() == self.opts.root_device.unwrap() {
-                // remove "IF"
-                println!("is_same_file_system return=true {:?} {:?}", metadata.dev(), self.opts.root_device.unwrap() );
-                return true
-            } else {
-                println!("is_same_file_system return=FALSE {:?} {:?}", metadata.dev(), self.opts.root_device.unwrap());
-                return false
-            }
-        } else {
-            panic!("is_same_file_system ERROR ")
-        }
+        let metadata = dent.metadata()?;
+        Ok(metadata.dev() == self.opts.root_device.unwrap())
+    }
 
+    #[cfg(windows)]
+    fn is_same_file_system(&self, dent: &DirEntry) -> Result<bool> {
+        // Unwrap is safe because we won't get here if by_handle_file_info is none
+        let file_info = dent.by_handle_file_information.unwrap();
+        Ok(file_info.dwVolumeSerialNumber as u64 == self.opts.root_device.unwrap())
     }
 
     fn handle_entry(
         &mut self,
         mut dent: DirEntry,
     ) -> Option<Result<DirEntry>> {
-        if self.opts.same_file_system {
-            if dent.depth != 0 && !self.is_same_file_system(&dent) {
-                return None
-            }
-        }
+
         if self.opts.follow_links && dent.file_type().is_symlink() {
             dent = itry!(self.follow(dent));
+        }
+        if self.opts.same_file_system && dent.depth != 0 {
+            let same_file_system = itry!(self.is_same_file_system(&dent));
+            if !same_file_system {
+                return None
+            }
         }
         if dent.file_type().is_dir() {
             itry!(self.push(&dent));
@@ -1050,6 +1062,14 @@ impl DirEntry {
         }.map_err(|err| Error::from_entry(self, err))
     }
 
+    /// Windows specific BY_HANDLE_FILE_INFORMATION metadata.
+    /// [`BY_HANDLE_FILE_INFORMATION`]: https://docs.rs/winapi/*/x86_64-pc-windows-msvc/winapi/um/fileapi/struct.BY_HANDLE_FILE_INFORMATION.html
+    #[cfg(windows)]
+    pub fn windows_metadata(&self) -> Option<BY_HANDLE_FILE_INFORMATION> {
+        // See more at the https://msdn.microsoft.com/en-us/library/windows/desktop/aa363788(v=vs.85).aspx
+        self.by_handle_file_information.clone()
+    }
+
     /// Return the file type for the file that this entry points to.
     ///
     /// If this is a symbolic link and [`follow_links`] is `true`, then this
@@ -1079,16 +1099,21 @@ impl DirEntry {
         self.depth
     }
 
-    #[cfg(not(unix))]
+    #[cfg(windows)]
     fn from_entry(depth: usize, ent: &fs::DirEntry) -> Result<DirEntry> {
+
         let ty = ent.file_type().map_err(|err| {
             Error::from_path(depth, ent.path(), err)
+        })?;
+        let by_handle_file_info = windows::windows_file_handle_info(&ent.path())
+            .map_err(|err| { Error::from_path(depth, ent.path(), err)
         })?;
         Ok(DirEntry {
             path: ent.path(),
             ty: ty,
             follow_link: false,
             depth: depth,
+            by_handle_file_information: Some(by_handle_file_info),
         })
     }
 
@@ -1105,13 +1130,16 @@ impl DirEntry {
             follow_link: false,
             depth: depth,
             ino: ent.ino(),
-            dev: None
         })
     }
 
-    #[cfg(not(unix))]
+
+    #[cfg(windows)]
     fn from_link(depth: usize, pb: PathBuf) -> Result<DirEntry> {
         let md = fs::metadata(&pb).map_err(|err| {
+            Error::from_path(depth, pb.clone(), err)
+        });
+        let by_handle_file_info = windows::windows_file_handle_info(&pb).map_err(|err| {
             Error::from_path(depth, pb.clone(), err)
         })?;
         Ok(DirEntry {
@@ -1119,6 +1147,7 @@ impl DirEntry {
             ty: md.file_type(),
             follow_link: true,
             depth: depth,
+            by_handle_file_information: Some(by_handle_file_info),
         })
     }
 
@@ -1135,19 +1164,19 @@ impl DirEntry {
             follow_link: true,
             depth: depth,
             ino: md.ino(),
-            dev: Some(md.dev()),
         })
     }
 }
 
 impl Clone for DirEntry {
-    #[cfg(not(unix))]
+    #[cfg(windows)]
     fn clone(&self) -> DirEntry {
         DirEntry {
             path: self.path.clone(),
             ty: self.ty,
             follow_link: self.follow_link,
             depth: self.depth,
+            by_handle_file_information: self.by_handle_file_information,
         }
     }
 
@@ -1159,7 +1188,6 @@ impl Clone for DirEntry {
             follow_link: self.follow_link,
             depth: self.depth,
             ino: self.ino,
-            dev: self.dev,
         }
     }
 }
