@@ -20,8 +20,7 @@ appveyor = { repository = "BurntSushi/walkdir" }
 same-file = "1"
 
 [target.'cfg(windows)'.dependencies]
-kernel32-sys = "0.2.2"
-winapi = { version = "0.3.2", features = ["winuser", "fileapi", "winbase", "winnt"] }
+winapi = { version = "0.3.2", features = ["fileapi", "winbase", "winnt"] }
 
 [dev-dependencies]
 docopt = "0.8"

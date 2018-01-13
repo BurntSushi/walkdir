@@ -111,10 +111,6 @@ extern crate quickcheck;
 #[cfg(test)]
 extern crate rand;
 extern crate same_file;
-#[cfg(windows)]
-extern crate winapi;
-#[cfg(windows)]
-extern crate kernel32;
 
 use std::cmp::{Ordering, min};
 use std::error;
@@ -127,16 +123,18 @@ use std::result;
 use std::vec;
 
 use same_file::Handle;
+
 #[cfg(unix)]
 pub use unix::DirEntryExt;
-#[cfg(windows)]
-use winapi::um::fileapi::BY_HANDLE_FILE_INFORMATION;
+
 #[cfg(test)]
 mod tests;
 #[cfg(unix)]
 mod unix;
 #[cfg(windows)]
 mod windows;
+#[cfg(windows)]
+pub use windows::BY_HANDLE_FILE_INFORMATION;
 
 /// Like try, but for iterators that return [`Option<Result<_, _>>`].
 ///
@@ -672,9 +670,7 @@ pub struct DirEntry {
     /// The underlying inode number (Unix only).
     #[cfg(unix)]
     ino: u64,
-    /// Retrieved while determining the file system.
-    /// Save it with the dir entry if we are getting this info
-    /// [`winapi::fileapi::BY_HANDLE_FILE_INFORMATION`]: https://retep998.github.io/doc/winapi/fileapi/struct.BY_HANDLE_FILE_INFORMATION.html
+    /// Windows specific metadata
     #[cfg(windows)]
     by_handle_file_information: Option<BY_HANDLE_FILE_INFORMATION>,
 }
@@ -850,7 +846,6 @@ impl IntoIter {
         &mut self,
         mut dent: DirEntry,
     ) -> Option<Result<DirEntry>> {
-
         if self.opts.follow_links && dent.file_type().is_symlink() {
             dent = itry!(self.follow(dent));
         }
@@ -1068,8 +1063,7 @@ impl DirEntry {
         }.map_err(|err| Error::from_entry(self, err))
     }
 
-    /// Windows specific BY_HANDLE_FILE_INFORMATION metadata.
-    /// [`BY_HANDLE_FILE_INFORMATION`]: https://docs.rs/winapi/*/x86_64-pc-windows-msvc/winapi/um/fileapi/struct.BY_HANDLE_FILE_INFORMATION.html
+    /// Return Windows specific metadata.
     #[cfg(windows)]
     pub fn windows_metadata(&self) -> Option<BY_HANDLE_FILE_INFORMATION> {
         // See more at the https://msdn.microsoft.com/en-us/library/windows/desktop/aa363788(v=vs.85).aspx
@@ -1107,7 +1101,6 @@ impl DirEntry {
 
     #[cfg(windows)]
     fn from_entry(depth: usize, ent: &fs::DirEntry) -> Result<DirEntry> {
-
         let ty = ent.file_type().map_err(|err| {
             Error::from_path(depth, ent.path(), err)
         })?;

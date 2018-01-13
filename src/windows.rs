@@ -1,15 +1,12 @@
-#[cfg(windows)]
-extern crate kernel32;
-#[cfg(windows)]
 extern crate winapi;
 use std::io::Error;
 use std::path::PathBuf;
 use std::mem;
-use winapi::um::fileapi::BY_HANDLE_FILE_INFORMATION;
-use winapi::um::winnt::HANDLE;
-use winapi::um::winbase::FILE_FLAG_BACKUP_SEMANTICS;
+use self::winapi::um::winnt::HANDLE;
+use self::winapi::um::winbase::FILE_FLAG_BACKUP_SEMANTICS;
+pub use self::winapi::um::fileapi::BY_HANDLE_FILE_INFORMATION;
 
-#[cfg(windows)]
+/// uses winapi to get Windows file metadata
 pub fn windows_file_handle_info(pbuf: &PathBuf) -> Result<BY_HANDLE_FILE_INFORMATION, Error> {
 
     extern "system" {
@@ -21,14 +18,13 @@ pub fn windows_file_handle_info(pbuf: &PathBuf) -> Result<BY_HANDLE_FILE_INFORMA
 
     // The FILE_FLAG_BACKUP_SEMANTICS flag is needed to open directories
     // https://msdn.microsoft.com/en-us/library/windows/desktop/aa365258(v=vs.85).aspx
-    let file = OpenOptions::new()
+    let opened_file = OpenOptions::new()
         .create(false)
         .write(false)
         .read(true)
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
-        .open(pbuf.as_path());
+        .open(pbuf.as_path())?;
 
-    let opened_file = file.unwrap();
     unsafe {
         let mut ainfo = mem::zeroed();
 

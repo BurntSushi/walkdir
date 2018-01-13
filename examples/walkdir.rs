@@ -23,7 +23,7 @@ Options:
     --sort                  Sort the output.
     -q, --ignore-errors     Ignore errors.
     -d, --depth             Show directory's contents before the directory itself.
-    --same-file-system      Stay on the same file system.
+    -x --same-file-system   Stay on the same file system.
 ";
 
 #[derive(Debug, Deserialize)]
