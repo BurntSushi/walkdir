@@ -111,6 +111,10 @@ extern crate quickcheck;
 #[cfg(test)]
 extern crate rand;
 extern crate same_file;
+#[cfg(windows)]
+extern crate winapi;
+#[cfg(windows)]
+extern crate kernel32;
 
 use std::cmp::{Ordering, min};
 use std::error;
@@ -126,11 +130,13 @@ use same_file::Handle;
 #[cfg(unix)]
 pub use unix::DirEntryExt;
 #[cfg(windows)]
-use winapi::fileapi::BY_HANDLE_FILE_INFORMATION;
+use winapi::um::fileapi::BY_HANDLE_FILE_INFORMATION;
 #[cfg(test)]
 mod tests;
 #[cfg(unix)]
 mod unix;
+#[cfg(windows)]
+mod windows;
 
 /// Like try, but for iterators that return [`Option<Result<_, _>>`].
 ///
@@ -1133,12 +1139,11 @@ impl DirEntry {
         })
     }
 
-
     #[cfg(windows)]
     fn from_link(depth: usize, pb: PathBuf) -> Result<DirEntry> {
         let md = fs::metadata(&pb).map_err(|err| {
             Error::from_path(depth, pb.clone(), err)
-        });
+        })?;
         let by_handle_file_info = windows::windows_file_handle_info(&pb).map_err(|err| {
             Error::from_path(depth, pb.clone(), err)
         })?;

@@ -5,9 +5,9 @@ extern crate winapi;
 use std::io::Error;
 use std::path::PathBuf;
 use std::mem;
-use winapi::fileapi::BY_HANDLE_FILE_INFORMATION;
-use winapi::winnt::HANDLE;
-use winapi::winbase::FILE_FLAG_BACKUP_SEMANTICS;
+use winapi::um::fileapi::BY_HANDLE_FILE_INFORMATION;
+use winapi::um::winnt::HANDLE;
+use winapi::um::winbase::FILE_FLAG_BACKUP_SEMANTICS;
 
 #[cfg(windows)]
 pub fn windows_file_handle_info(pbuf: &PathBuf) -> Result<BY_HANDLE_FILE_INFORMATION, Error> {
