@@ -20,7 +20,7 @@ yielded by the iterator. Finally, the [`Error`] type is a small wrapper around
 [`std::io::Error`] with additional information, such as if a loop was detected
 while following symbolic links (not enabled by default).
 
-[`WalkDir`]: struct.Walkdir.html
+[`WalkDir`]: struct.WalkDir.html
 [`DirEntry`]: struct.DirEntry.html
 [`Error`]: struct.Error.html
 [`std::io::Error`]: https://doc.rust-lang.org/stable/std/io/struct.Error.html
@@ -73,7 +73,7 @@ for entry in WalkDir::new("foo").follow_links(true) {
 # }
 ```
 
-[`follow_links`]: struct.Walkdir.html#method.follow_links
+[`follow_links`]: struct.WalkDir.html#method.follow_links
 
 # Example: skip hidden files and directories on unix
 
