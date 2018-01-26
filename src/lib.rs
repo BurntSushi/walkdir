@@ -1407,6 +1407,18 @@ impl Error {
        }
     }
 
+    /// Similar to [`io_error`] except consumes self to convert to the [`io::Error`],
+    /// if there is one.
+    ///
+    /// [`io_error`]: struct.WalkDir.html#method.io_error
+    /// [`io::Error`]: https://doc.rust-lang.org/stable/std/io/struct.Error.html
+    pub fn into_io_error(self) -> Option<io::Error> {
+       match self.inner {
+            ErrorInner::Io { err, .. } => Some(err),
+            ErrorInner::Loop { .. } => None,
+       }
+    }
+
     fn from_path(depth: usize, pb: PathBuf, err: io::Error) -> Self {
         Error {
             depth: depth,
@@ -1468,12 +1480,15 @@ impl fmt::Display for Error {
 }
 
 impl From<Error> for io::Error {
-    fn from(err: Error) -> io::Error {
-        match err {
-            Error { inner: ErrorInner::Io { err, .. }, .. } => err,
-            err @ Error { inner: ErrorInner::Loop { .. }, .. } => {
-                io::Error::new(io::ErrorKind::Other, err)
+    fn from(walk_err: Error) -> io::Error {
+        let kind = match walk_err {
+            Error { inner: ErrorInner::Io { ref err, .. }, .. } => {
+                err.kind()
             }
-        }
+            Error { inner: ErrorInner::Loop { .. }, .. } => {
+                io::ErrorKind::Other
+            }
+        };
+        io::Error::new(kind, walk_err)
     }
 }
