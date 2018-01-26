@@ -41,7 +41,13 @@ struct Args {
 
 macro_rules! wout { ($($tt:tt)*) => { {writeln!($($tt)*)}.unwrap() } }
 
+fn pretty_ioerr() -> io::Result<()> {
+    let _ = WalkDir::new("does-not-exist").into_iter().next().unwrap()?;
+    Ok(())
+}
+
 fn main() {
+    println!("Pretty error: {}", pretty_ioerr().unwrap_err());
     let args: Args = Docopt::new(USAGE)
         .and_then(|d| d.deserialize())
         .unwrap_or_else(|e| e.exit());
