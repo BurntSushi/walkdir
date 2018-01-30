@@ -290,11 +290,6 @@ impl WalkDir {
                 contents_first: false,
                 same_file_system: false,
                 root_device: None,
-//                root_device: Err(Error::from_io(0,
-//                                                std::io::Error::new(
-//                                                    std::io::ErrorKind::Other,
-//                                                    "root device not detected sought yet"))
-//                ),
             },
             root: root.as_ref().to_path_buf(),
         }
