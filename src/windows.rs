@@ -4,12 +4,13 @@ use std::path::PathBuf;
 use std::mem;
 use self::winapi::um::winnt::HANDLE;
 use self::winapi::um::winbase::FILE_FLAG_BACKUP_SEMANTICS;
-pub use self::winapi::um::fileapi::BY_HANDLE_FILE_INFORMATION;
+use self::winapi::um::fileapi::BY_HANDLE_FILE_INFORMATION;
 
 /// uses winapi to get Windows file metadata
 pub fn windows_file_handle_info(pbuf: &PathBuf) -> Result<BY_HANDLE_FILE_INFORMATION, Error> {
 
     extern "system" {
+        // https://msdn.microsoft.com/en-us/library/windows/desktop/aa363788(v=vs.85).aspx
         fn GetFileInformationByHandle(a: HANDLE, b: *mut BY_HANDLE_FILE_INFORMATION) -> i32;
     }
 

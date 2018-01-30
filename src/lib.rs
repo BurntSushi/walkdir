@@ -133,8 +133,6 @@ mod tests;
 mod unix;
 #[cfg(windows)]
 mod windows;
-#[cfg(windows)]
-pub use windows::BY_HANDLE_FILE_INFORMATION;
 
 /// Like try, but for iterators that return [`Option<Result<_, _>>`].
 ///
@@ -251,7 +249,7 @@ struct WalkDirOptions {
     >>,
     contents_first: bool,
     same_file_system: bool,
-    root_device: Option<u64>,
+    root_device: Option<Result<u64>>,
 }
 
 impl fmt::Debug for WalkDirOptions {
@@ -292,6 +290,11 @@ impl WalkDir {
                 contents_first: false,
                 same_file_system: false,
                 root_device: None,
+//                root_device: Err(Error::from_io(0,
+//                                                std::io::Error::new(
+//                                                    std::io::ErrorKind::Other,
+//                                                    "root device not detected sought yet"))
+//                ),
             },
             root: root.as_ref().to_path_buf(),
         }
@@ -469,24 +472,23 @@ impl WalkDir {
             self.opts.root_device = None;
         }
         self
+
     }
 
     #[cfg(unix)]
-    fn get_root_device(&self) -> Option<u64> {
+    fn get_root_device(&self) -> Option<Result<u64>> {
         use std::os::unix::fs::MetadataExt;
-        match self.root.metadata() {
-            Ok(metadata) => return Some(metadata.dev()),
-            Err(_) => panic!("Error while looking up starting filesystem"),
-        }
+        Some(self.root.metadata()
+            .map(|md| md.dev())
+            .map_err(|e| Error::from_path(0, self.root.clone(),e))
+        )
     }
 
     #[cfg(windows)]
-    fn get_root_device(&self) -> Option<u64> {
-        match windows::windows_file_handle_info(&self.root) {
-            // panic if we can't find the root device when called with --same-file-system
-            Ok(i) => Some(i.dwVolumeSerialNumber as u64),
-            Err(i) => panic!("Error while looking up starting filesystem: {:?}", i),
-        }
+    fn get_root_device(&self) -> Option<Result<u64>> {
+        Some(windows::windows_file_handle_info(&self.root)
+            .map(|d|d.dwVolumeSerialNumber as u64)
+            .map_err(|e| Error::from_path(0, self.root.clone(), e)))
     }
 }
 
@@ -670,9 +672,6 @@ pub struct DirEntry {
     /// The underlying inode number (Unix only).
     #[cfg(unix)]
     ino: u64,
-    /// Windows specific metadata
-    #[cfg(windows)]
-    by_handle_file_information: Option<BY_HANDLE_FILE_INFORMATION>,
 }
 
 impl Iterator for IntoIter {
@@ -832,14 +831,28 @@ impl IntoIter {
     fn is_same_file_system(&self, dent: &DirEntry) -> Result<bool> {
         use std::os::unix::fs::MetadataExt;
         let metadata = dent.metadata()?;
-        Ok(metadata.dev() == self.opts.root_device.unwrap())
+        // We cannot take the error from self since its borrowed, so we make a new error.
+        // If the root_device is unknown, every entry will fail.
+        match self.opts.root_device {
+            Some(Ok(t)) => Ok(metadata.dev() == t),
+            _ => Err(Error::from_entry(dent,std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Root device id was never identified"))),
+        }
     }
 
     #[cfg(windows)]
     fn is_same_file_system(&self, dent: &DirEntry) -> Result<bool> {
-        // Unwrap is safe because we won't get here if by_handle_file_info is none
-        let file_info = dent.by_handle_file_information.unwrap();
-        Ok(file_info.dwVolumeSerialNumber as u64 == self.opts.root_device.unwrap())
+        let by_handle_file_info = windows::windows_file_handle_info(&dent.path)
+            .map_err(|err| { Error::from_entry(dent, err) })?;
+        // We cannot take the error from self since it's borrowed, so we make a new error.
+        // If the root_device is unknown, every entry will fail.
+        match self.opts.root_device {
+            Some(Ok(t)) => Ok(by_handle_file_info.dwVolumeSerialNumber as u64 == t),
+            _ => Err(Error::from_entry(dent,std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Root device id was never identified"))),
+        }
     }
 
     fn handle_entry(
@@ -1063,12 +1076,6 @@ impl DirEntry {
         }.map_err(|err| Error::from_entry(self, err))
     }
 
-    /// Return Windows specific metadata.
-    #[cfg(windows)]
-    pub fn windows_metadata(&self) -> Option<BY_HANDLE_FILE_INFORMATION> {
-        // See more at the https://msdn.microsoft.com/en-us/library/windows/desktop/aa363788(v=vs.85).aspx
-        self.by_handle_file_information.clone()
-    }
 
     /// Return the file type for the file that this entry points to.
     ///
@@ -1104,15 +1111,11 @@ impl DirEntry {
         let ty = ent.file_type().map_err(|err| {
             Error::from_path(depth, ent.path(), err)
         })?;
-        let by_handle_file_info = windows::windows_file_handle_info(&ent.path())
-            .map_err(|err| { Error::from_path(depth, ent.path(), err)
-        })?;
         Ok(DirEntry {
             path: ent.path(),
             ty: ty,
             follow_link: false,
             depth: depth,
-            by_handle_file_information: Some(by_handle_file_info),
         })
     }
 
@@ -1137,15 +1140,11 @@ impl DirEntry {
         let md = fs::metadata(&pb).map_err(|err| {
             Error::from_path(depth, pb.clone(), err)
         })?;
-        let by_handle_file_info = windows::windows_file_handle_info(&pb).map_err(|err| {
-            Error::from_path(depth, pb.clone(), err)
-        })?;
         Ok(DirEntry {
             path: pb,
             ty: md.file_type(),
             follow_link: true,
             depth: depth,
-            by_handle_file_information: Some(by_handle_file_info),
         })
     }
 
@@ -1174,7 +1173,6 @@ impl Clone for DirEntry {
             ty: self.ty,
             follow_link: self.follow_link,
             depth: self.depth,
-            by_handle_file_information: self.by_handle_file_information,
         }
     }
 
