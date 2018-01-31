@@ -1282,12 +1282,13 @@ impl<P> FilterEntry<IntoIter, P> where P: FnMut(&DirEntry) -> bool {
 /// case, there is no underlying IO error.
 ///
 /// To maintain good ergonomics, this type has a
-/// `impl From<Error> for std::io::Error` defined so that you may use an
-/// [`io::Result`] with methods in this crate if you don't care about accessing
-/// the underlying error data in a structured form.
+/// [`impl From<Error> for std::io::Error`][impl] defined which preserves the original context.
+/// This allows you to use an [`io::Result`] with methods in this crate if you don't care about
+/// accessing the underlying error data in a structured form.
 ///
 /// [`std::io::Error`]: https://doc.rust-lang.org/stable/std/io/struct.Error.html
 /// [`io::Result`]: https://doc.rust-lang.org/stable/std/io/type.Result.html
+/// [impl]: struct.Error.html#impl-From%3CError%3E
 #[derive(Debug)]
 pub struct Error {
     depth: usize,
@@ -1346,17 +1347,19 @@ impl Error {
         self.depth
     }
 
-    /// Inspect the underlying [`io::Error`] if there is one.
+    /// Inspect the original [`io::Error`] if there is one.
     ///
     /// [`None`] is returned if the [`Error`] doesn't correspond to an
     /// [`io::Error`]. This might happen, for example, when the error was
     /// produced because a cycle was found in the directory tree while
     /// following symbolic links.
     ///
-    /// This method returns a borrowed value that is bound to the lifetime of
-    /// the [`Error`]. To obtain an owned value, the [`From`] trait can be used
-    /// instead, in which case if the [`Error`] being being converted doesn't
-    /// correspond to an [`io::Error`], a new one will be created.
+    /// This method returns a borrowed value that is bound to the lifetime of the [`Error`]. To
+    /// obtain an owned value, the [`into_io_error`] can be used instead.
+    ///
+    /// > This is the original [`io::Error`] and is _not_ the same as
+    /// > [`impl From<Error> for std::io::Error`][impl] which contains additional context about the
+    /// error.
     ///
     /// # Example
     ///
@@ -1400,9 +1403,23 @@ impl Error {
     /// [`io::Error`]: https://doc.rust-lang.org/stable/std/io/struct.Error.html
     /// [`From`]: https://doc.rust-lang.org/stable/std/convert/trait.From.html
     /// [`Error`]: struct.Error.html
+    /// [`into_io_error`]: struct.Error.html#method.into_io_error
+    /// [impl]: struct.Error.html#impl-From%3CError%3E
     pub fn io_error(&self) -> Option<&io::Error> {
        match self.inner {
             ErrorInner::Io { ref err, .. } => Some(err),
+            ErrorInner::Loop { .. } => None,
+       }
+    }
+
+    /// Similar to [`io_error`] except consumes self to convert to the original
+    /// [`io::Error`] if one exists.
+    ///
+    /// [`io_error`]: struct.Error.html#method.io_error
+    /// [`io::Error`]: https://doc.rust-lang.org/stable/std/io/struct.Error.html
+    pub fn into_io_error(self) -> Option<io::Error> {
+       match self.inner {
+            ErrorInner::Io { err, .. } => Some(err),
             ErrorInner::Loop { .. } => None,
        }
     }
@@ -1468,12 +1485,24 @@ impl fmt::Display for Error {
 }
 
 impl From<Error> for io::Error {
-    fn from(err: Error) -> io::Error {
-        match err {
-            Error { inner: ErrorInner::Io { err, .. }, .. } => err,
-            err @ Error { inner: ErrorInner::Loop { .. }, .. } => {
-                io::Error::new(io::ErrorKind::Other, err)
+    /// Convert the [`Error`] to an [`io::Error`], preserving the original [`Error`] as the ["inner
+    /// error"]. Note that this also makes the display of the error include the context.
+    ///
+    /// This is different from [`into_io_error`] which returns the original [`io::Error`].
+    ///
+    /// [`Error`]: struct.Error.html
+    /// [`io::Error`]: https://doc.rust-lang.org/stable/std/io/struct.Error.html
+    /// ["inner error"]: https://doc.rust-lang.org/std/io/struct.Error.html#method.into_inner
+    /// [`into_io_error`]: struct.WalkDir.html#method.into_io_error
+    fn from(walk_err: Error) -> io::Error {
+        let kind = match walk_err {
+            Error { inner: ErrorInner::Io { ref err, .. }, .. } => {
+                err.kind()
             }
-        }
+            Error { inner: ErrorInner::Loop { .. }, .. } => {
+                io::ErrorKind::Other
+            }
+        };
+        io::Error::new(kind, walk_err)
     }
 }
