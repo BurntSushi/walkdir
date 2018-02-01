@@ -851,13 +851,15 @@ impl IntoIter {
             });
             list = DirList::Closed(entries.into_iter());
         }
-        self.stack_list.push(list);
         if self.opts.follow_links {
             let ancestor = Ancestor::new(&dent).map_err(|err| {
                 Error::from_io(self.depth, err)
             })?;
             self.stack_path.push(ancestor);
         }
+        // We push this after stack_path since creating the Ancestor can fail.
+        // If it fails, then we return the error and won't descend.
+        self.stack_list.push(list);
         Ok(())
     }
 
