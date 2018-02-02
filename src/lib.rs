@@ -1059,12 +1059,15 @@ impl DirEntry {
     #[cfg(not(unix))]
     fn from_entry(depth: usize, ent: &fs::DirEntry) -> Result<DirEntry> {
         let path = ent.path();
+        let ty = ent.file_type().map_err(|err| {
+            Error::from_path(depth, path.clone(), err)
+        })?;
         let md = fs::metadata(&path).map_err(|err| {
             Error::from_path(depth, path.clone(), err)
         })?;
         Ok(DirEntry {
             path: path,
-            ty: md.file_type(),
+            ty: ty,
             follow_link: false,
             depth: depth,
             metadata: md,
