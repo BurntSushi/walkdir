@@ -800,10 +800,11 @@ impl IntoIter {
         if self.opts.follow_links && dent.file_type().is_symlink() {
             dent = itry!(self.follow(dent));
         }
-        if dent.is_dir() {
+        let is_normal_dir = !dent.file_type().is_symlink() && dent.is_dir();
+        if is_normal_dir {
             itry!(self.push(&dent));
         }
-        if dent.is_dir() && self.opts.contents_first {
+        if is_normal_dir && self.opts.contents_first {
             self.deferred_dirs.push(dent);
             None
         } else if self.skippable() {
@@ -1196,7 +1197,7 @@ where P: FnMut(&DirEntry) -> bool
                 Some(result) => itry!(result),
             };
             if !(self.predicate)(&dent) {
-                if dent.file_type().is_dir() {
+                if dent.is_dir() {
                     self.it.skip_current_dir();
                 }
                 continue;
