@@ -111,6 +111,8 @@ extern crate quickcheck;
 #[cfg(test)]
 extern crate rand;
 extern crate same_file;
+#[cfg(windows)]
+extern crate winapi;
 
 use std::cmp::{Ordering, min};
 use std::error;
@@ -629,6 +631,13 @@ pub struct DirEntry {
     /// The underlying inode number (Unix only).
     #[cfg(unix)]
     ino: u64,
+    /// The underlying metadata (Windows only).
+    ///
+    /// We use this to determine whether an entry is a directory or not, which
+    /// works around a bug in Rust's standard library:
+    /// https://github.com/rust-lang/rust/issues/46484
+    #[cfg(windows)]
+    metadata: fs::Metadata,
 }
 
 impl Iterator for IntoIter {
@@ -791,10 +800,10 @@ impl IntoIter {
         if self.opts.follow_links && dent.file_type().is_symlink() {
             dent = itry!(self.follow(dent));
         }
-        if dent.file_type().is_dir() {
+        if dent.is_dir() {
             itry!(self.push(&dent));
         }
-        if dent.file_type().is_dir() && self.opts.contents_first {
+        if dent.is_dir() && self.opts.contents_first {
             self.deferred_dirs.push(dent);
             None
         } else if self.skippable() {
@@ -879,7 +888,7 @@ impl IntoIter {
         // The only way a symlink can cause a loop is if it points
         // to a directory. Otherwise, it always points to a leaf
         // and we can omit any loop checks.
-        if dent.file_type().is_dir() {
+        if dent.is_dir() {
             self.check_loop(dent.path())?;
         }
         Ok(dent)
@@ -1030,16 +1039,35 @@ impl DirEntry {
         self.depth
     }
 
+    /// Returns true if and only if this entry points to a directory.
+    ///
+    /// This works around a bug in Rust's standard library:
+    /// https://github.com/rust-lang/rust/issues/46484
+    #[cfg(windows)]
+    fn is_dir(&self) -> bool {
+        use std::os::windows::fs::MetadataExt;
+        use winapi::um::winnt::FILE_ATTRIBUTE_DIRECTORY;
+        self.metadata.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0
+    }
+
+    /// Returns true if and only if this entry points to a directory.
+    #[cfg(not(windows))]
+    fn is_dir(&self) -> bool {
+        self.ty.is_dir()
+    }
+
     #[cfg(not(unix))]
     fn from_entry(depth: usize, ent: &fs::DirEntry) -> Result<DirEntry> {
-        let ty = ent.file_type().map_err(|err| {
-            Error::from_path(depth, ent.path(), err)
+        let path = ent.path();
+        let md = fs::metadata(&path).map_err(|err| {
+            Error::from_path(depth, path.clone(), err)
         })?;
         Ok(DirEntry {
-            path: ent.path(),
-            ty: ty,
+            path: path,
+            ty: md.file_type(),
             follow_link: false,
             depth: depth,
+            metadata: md,
         })
     }
 
@@ -1069,6 +1097,7 @@ impl DirEntry {
             ty: md.file_type(),
             follow_link: true,
             depth: depth,
+            metadata: md,
         })
     }
 
@@ -1097,6 +1126,7 @@ impl Clone for DirEntry {
             ty: self.ty,
             follow_link: self.follow_link,
             depth: self.depth,
+            metadata: self.metadata.clone(),
         }
     }
 
