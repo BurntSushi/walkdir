@@ -269,13 +269,8 @@ impl fmt::Debug for WalkDirOptions {
     }
 }
 
-impl WalkDir {
-    /// Create a builder for a recursive directory iterator starting at the
-    /// file path `root`. If `root` is a directory, then it is the first item
-    /// yielded by the iterator. If `root` is a file, then it is the first
-    /// and only item yielded by the iterator. If `root` is a symlink, then it
-    /// is always followed.
-    pub fn new<P: AsRef<Path>>(root: P) -> Self {
+impl From<PathBuf> for WalkDir {
+    fn from(root: PathBuf) -> Self {
         WalkDir {
             opts: WalkDirOptions {
                 follow_links: false,
@@ -285,8 +280,25 @@ impl WalkDir {
                 sorter: None,
                 contents_first: false,
             },
-            root: root.as_ref().to_path_buf(),
+            root: root,
         }
+    }
+}
+
+impl<'a> From<&'a Path> for WalkDir {
+    fn from(root: &'a Path) -> Self {
+        root.to_path_buf().into()
+    }
+}
+
+impl WalkDir {
+    /// Create a builder for a recursive directory iterator starting at the
+    /// file path `root`. If `root` is a directory, then it is the first item
+    /// yielded by the iterator. If `root` is a file, then it is the first
+    /// and only item yielded by the iterator. If `root` is a symlink, then it
+    /// is always followed.
+    pub fn new<P: AsRef<Path>>(root: P) -> Self {
+        root.as_ref().into()
     }
 
     /// Set the minimum depth of entries yielded by the iterator.
