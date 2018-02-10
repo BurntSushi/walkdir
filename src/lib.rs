@@ -423,10 +423,10 @@ impl WalkDir {
     /// }
     ///
     /// // foo
-    /// // abc
-    /// // qrs
-    /// // tuv
-    /// // def
+    /// // foo/abc
+    /// // foo/abc/qrs
+    /// // foo/abc/tuv
+    /// // foo/def
     /// ```
     ///
     /// With contents_first enabled:
@@ -439,10 +439,10 @@ impl WalkDir {
     ///     println!("{}", entry.path().display());
     /// }
     ///
-    /// // qrs
-    /// // tuv
-    /// // abc
-    /// // def
+    /// // foo/abc/qrs
+    /// // foo/abc/tuv
+    /// // foo/abc
+    /// // foo/def
     /// // foo
     /// ```
     pub fn contents_first(mut self, yes: bool) -> Self {
