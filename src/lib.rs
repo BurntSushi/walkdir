@@ -462,7 +462,7 @@ impl WalkDir {
     pub fn same_file_system(mut self, yes: bool) -> Self {
         self.opts.same_file_system = yes;
         if self.opts.same_file_system == true {
-            self.opts.root_device = self.get_root_device();
+            self.opts.root_device = Some(self.get_root_device());
         } else {
             self.opts.root_device = None;
         }
@@ -471,19 +471,19 @@ impl WalkDir {
     }
 
     #[cfg(unix)]
-    fn get_root_device(&self) -> Option<Result<u64>> {
+    fn get_root_device(&self) -> Result<u64> {
         use std::os::unix::fs::MetadataExt;
-        Some(self.root.metadata()
+        self.root.metadata()
             .map(|md| md.dev())
             .map_err(|e| Error::from_path(0, self.root.clone(),e))
-        )
+
     }
 
     #[cfg(windows)]
-    fn get_root_device(&self) -> Option<Result<u64>> {
-        Some(windows::windows_file_handle_info(&self.root)
+    fn get_root_device(&self) -> Result<u64> {
+        windows::windows_file_handle_info(&self.root)
             .map(|d|d.dwVolumeSerialNumber as u64)
-            .map_err(|e| Error::from_path(0, self.root.clone(), e)))
+            .map_err(|e| Error::from_path(0, self.root.clone(), e))
     }
 }
 
