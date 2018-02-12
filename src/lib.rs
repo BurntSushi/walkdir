@@ -20,7 +20,7 @@ yielded by the iterator. Finally, the [`Error`] type is a small wrapper around
 [`std::io::Error`] with additional information, such as if a loop was detected
 while following symbolic links (not enabled by default).
 
-[`WalkDir`]: struct.Walkdir.html
+[`WalkDir`]: struct.WalkDir.html
 [`DirEntry`]: struct.DirEntry.html
 [`Error`]: struct.Error.html
 [`std::io::Error`]: https://doc.rust-lang.org/stable/std/io/struct.Error.html
@@ -73,7 +73,7 @@ for entry in WalkDir::new("foo").follow_links(true) {
 # }
 ```
 
-[`follow_links`]: struct.Walkdir.html#method.follow_links
+[`follow_links`]: struct.WalkDir.html#method.follow_links
 
 # Example: skip hidden files and directories on unix
 
@@ -111,6 +111,8 @@ extern crate quickcheck;
 #[cfg(test)]
 extern crate rand;
 extern crate same_file;
+#[cfg(windows)]
+extern crate winapi;
 
 use std::cmp::{Ordering, min};
 use std::error;
@@ -429,10 +431,10 @@ impl WalkDir {
     /// }
     ///
     /// // foo
-    /// // abc
-    /// // qrs
-    /// // tuv
-    /// // def
+    /// // foo/abc
+    /// // foo/abc/qrs
+    /// // foo/abc/tuv
+    /// // foo/def
     /// ```
     ///
     /// With contents_first enabled:
@@ -445,10 +447,10 @@ impl WalkDir {
     ///     println!("{}", entry.path().display());
     /// }
     ///
-    /// // qrs
-    /// // tuv
-    /// // abc
-    /// // def
+    /// // foo/abc/qrs
+    /// // foo/abc/tuv
+    /// // foo/abc
+    /// // foo/def
     /// // foo
     /// ```
     pub fn contents_first(mut self, yes: bool) -> Self {
@@ -667,6 +669,13 @@ pub struct DirEntry {
     /// The underlying inode number (Unix only).
     #[cfg(unix)]
     ino: u64,
+    /// The underlying metadata (Windows only).
+    ///
+    /// We use this to determine whether an entry is a directory or not, which
+    /// works around a bug in Rust's standard library:
+    /// https://github.com/rust-lang/rust/issues/46484
+    #[cfg(windows)]
+    metadata: fs::Metadata,
 }
 
 impl Iterator for IntoIter {
@@ -863,10 +872,11 @@ impl IntoIter {
                 return None
             }
         }
-        if dent.file_type().is_dir() {
+        let is_normal_dir = !dent.file_type().is_symlink() && dent.is_dir();
+        if is_normal_dir {
             itry!(self.push(&dent));
         }
-        if dent.file_type().is_dir() && self.opts.contents_first {
+        if is_normal_dir && self.opts.contents_first {
             self.deferred_dirs.push(dent);
             None
         } else if self.skippable() {
@@ -923,13 +933,15 @@ impl IntoIter {
             });
             list = DirList::Closed(entries.into_iter());
         }
-        self.stack_list.push(list);
         if self.opts.follow_links {
             let ancestor = Ancestor::new(&dent).map_err(|err| {
                 Error::from_io(self.depth, err)
             })?;
             self.stack_path.push(ancestor);
         }
+        // We push this after stack_path since creating the Ancestor can fail.
+        // If it fails, then we return the error and won't descend.
+        self.stack_list.push(list);
         Ok(())
     }
 
@@ -949,7 +961,7 @@ impl IntoIter {
         // The only way a symlink can cause a loop is if it points
         // to a directory. Otherwise, it always points to a leaf
         // and we can omit any loop checks.
-        if dent.file_type().is_dir() {
+        if dent.is_dir() {
             self.check_loop(dent.path())?;
         }
         Ok(dent)
@@ -1102,15 +1114,38 @@ impl DirEntry {
     }
 
     #[cfg(windows)]
+    /// Returns true if and only if this entry points to a directory.
+    ///
+    /// This works around a bug in Rust's standard library:
+    /// https://github.com/rust-lang/rust/issues/46484
+    #[cfg(windows)]
+    fn is_dir(&self) -> bool {
+        use std::os::windows::fs::MetadataExt;
+        use winapi::um::winnt::FILE_ATTRIBUTE_DIRECTORY;
+        self.metadata.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0
+    }
+
+    /// Returns true if and only if this entry points to a directory.
+    #[cfg(not(windows))]
+    fn is_dir(&self) -> bool {
+        self.ty.is_dir()
+    }
+
+    #[cfg(not(unix))]
     fn from_entry(depth: usize, ent: &fs::DirEntry) -> Result<DirEntry> {
+        let path = ent.path();
         let ty = ent.file_type().map_err(|err| {
-            Error::from_path(depth, ent.path(), err)
+            Error::from_path(depth, path.clone(), err)
+        })?;
+        let md = fs::metadata(&path).map_err(|err| {
+            Error::from_path(depth, path.clone(), err)
         })?;
         Ok(DirEntry {
-            path: ent.path(),
+            path: path,
             ty: ty,
             follow_link: false,
             depth: depth,
+            metadata: md,
         })
     }
 
@@ -1140,6 +1175,7 @@ impl DirEntry {
             ty: md.file_type(),
             follow_link: true,
             depth: depth,
+            metadata: md,
         })
     }
 
@@ -1168,6 +1204,7 @@ impl Clone for DirEntry {
             ty: self.ty,
             follow_link: self.follow_link,
             depth: self.depth,
+            metadata: self.metadata.clone(),
         }
     }
 
@@ -1234,7 +1271,7 @@ where P: FnMut(&DirEntry) -> bool
                 Some(result) => itry!(result),
             };
             if !(self.predicate)(&dent) {
-                if dent.file_type().is_dir() {
+                if dent.is_dir() {
                     self.it.skip_current_dir();
                 }
                 continue;
@@ -1355,12 +1392,13 @@ impl<P> FilterEntry<IntoIter, P> where P: FnMut(&DirEntry) -> bool {
 /// case, there is no underlying IO error.
 ///
 /// To maintain good ergonomics, this type has a
-/// `impl From<Error> for std::io::Error` defined so that you may use an
-/// [`io::Result`] with methods in this crate if you don't care about accessing
-/// the underlying error data in a structured form.
+/// [`impl From<Error> for std::io::Error`][impl] defined which preserves the original context.
+/// This allows you to use an [`io::Result`] with methods in this crate if you don't care about
+/// accessing the underlying error data in a structured form.
 ///
 /// [`std::io::Error`]: https://doc.rust-lang.org/stable/std/io/struct.Error.html
 /// [`io::Result`]: https://doc.rust-lang.org/stable/std/io/type.Result.html
+/// [impl]: struct.Error.html#impl-From%3CError%3E
 #[derive(Debug)]
 pub struct Error {
     depth: usize,
@@ -1419,17 +1457,19 @@ impl Error {
         self.depth
     }
 
-    /// Inspect the underlying [`io::Error`] if there is one.
+    /// Inspect the original [`io::Error`] if there is one.
     ///
     /// [`None`] is returned if the [`Error`] doesn't correspond to an
     /// [`io::Error`]. This might happen, for example, when the error was
     /// produced because a cycle was found in the directory tree while
     /// following symbolic links.
     ///
-    /// This method returns a borrowed value that is bound to the lifetime of
-    /// the [`Error`]. To obtain an owned value, the [`From`] trait can be used
-    /// instead, in which case if the [`Error`] being being converted doesn't
-    /// correspond to an [`io::Error`], a new one will be created.
+    /// This method returns a borrowed value that is bound to the lifetime of the [`Error`]. To
+    /// obtain an owned value, the [`into_io_error`] can be used instead.
+    ///
+    /// > This is the original [`io::Error`] and is _not_ the same as
+    /// > [`impl From<Error> for std::io::Error`][impl] which contains additional context about the
+    /// error.
     ///
     /// # Example
     ///
@@ -1473,9 +1513,23 @@ impl Error {
     /// [`io::Error`]: https://doc.rust-lang.org/stable/std/io/struct.Error.html
     /// [`From`]: https://doc.rust-lang.org/stable/std/convert/trait.From.html
     /// [`Error`]: struct.Error.html
+    /// [`into_io_error`]: struct.Error.html#method.into_io_error
+    /// [impl]: struct.Error.html#impl-From%3CError%3E
     pub fn io_error(&self) -> Option<&io::Error> {
        match self.inner {
             ErrorInner::Io { ref err, .. } => Some(err),
+            ErrorInner::Loop { .. } => None,
+       }
+    }
+
+    /// Similar to [`io_error`] except consumes self to convert to the original
+    /// [`io::Error`] if one exists.
+    ///
+    /// [`io_error`]: struct.Error.html#method.io_error
+    /// [`io::Error`]: https://doc.rust-lang.org/stable/std/io/struct.Error.html
+    pub fn into_io_error(self) -> Option<io::Error> {
+       match self.inner {
+            ErrorInner::Io { err, .. } => Some(err),
             ErrorInner::Loop { .. } => None,
        }
     }
@@ -1541,12 +1595,24 @@ impl fmt::Display for Error {
 }
 
 impl From<Error> for io::Error {
-    fn from(err: Error) -> io::Error {
-        match err {
-            Error { inner: ErrorInner::Io { err, .. }, .. } => err,
-            err @ Error { inner: ErrorInner::Loop { .. }, .. } => {
-                io::Error::new(io::ErrorKind::Other, err)
+    /// Convert the [`Error`] to an [`io::Error`], preserving the original [`Error`] as the ["inner
+    /// error"]. Note that this also makes the display of the error include the context.
+    ///
+    /// This is different from [`into_io_error`] which returns the original [`io::Error`].
+    ///
+    /// [`Error`]: struct.Error.html
+    /// [`io::Error`]: https://doc.rust-lang.org/stable/std/io/struct.Error.html
+    /// ["inner error"]: https://doc.rust-lang.org/std/io/struct.Error.html#method.into_inner
+    /// [`into_io_error`]: struct.WalkDir.html#method.into_io_error
+    fn from(walk_err: Error) -> io::Error {
+        let kind = match walk_err {
+            Error { inner: ErrorInner::Io { ref err, .. }, .. } => {
+                err.kind()
             }
-        }
+            Error { inner: ErrorInner::Loop { .. }, .. } => {
+                io::ErrorKind::Other
+            }
+        };
+        io::Error::new(kind, walk_err)
     }
 }
