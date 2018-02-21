@@ -1005,6 +1005,20 @@ impl DirEntry {
     /// [`std::fs::metadata`]: https://doc.rust-lang.org/std/fs/fn.metadata.html
     /// [`std::fs::symlink_metadata`]: https://doc.rust-lang.org/stable/std/fs/fn.symlink_metadata.html
     pub fn metadata(&self) -> Result<fs::Metadata> {
+        self.metadata_internal()
+    }
+
+    #[cfg(windows)]
+    fn metadata_internal(&self) -> Result<fs::Metadata> {
+        if self.follow_link {
+            fs::metadata(&self.path)
+        } else {
+            Ok(self.metadata.clone())
+        }.map_err(|err| Error::from_entry(self, err))
+    }
+
+    #[cfg(not(windows))]
+    fn metadata_internal(&self) -> Result<fs::Metadata> {
         if self.follow_link {
             fs::metadata(&self.path)
         } else {
@@ -1064,7 +1078,7 @@ impl DirEntry {
         let ty = ent.file_type().map_err(|err| {
             Error::from_path(depth, path.clone(), err)
         })?;
-        let md = fs::metadata(&path).map_err(|err| {
+        let md = ent.metadata().map_err(|err| {
             Error::from_path(depth, path.clone(), err)
         })?;
         Ok(DirEntry {
