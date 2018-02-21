@@ -631,7 +631,8 @@ pub struct DirEntry {
     /// The underlying inode number (Unix only).
     #[cfg(unix)]
     ino: u64,
-    /// The underlying metadata (Windows only).
+    /// The underlying metadata (Windows only). We store this on Windows
+    /// because this comes for free while reading a directory.
     ///
     /// We use this to determine whether an entry is a directory or not, which
     /// works around a bug in Rust's standard library:
@@ -1057,7 +1058,7 @@ impl DirEntry {
         self.ty.is_dir()
     }
 
-    #[cfg(not(unix))]
+    #[cfg(windows)]
     fn from_entry(depth: usize, ent: &fs::DirEntry) -> Result<DirEntry> {
         let path = ent.path();
         let ty = ent.file_type().map_err(|err| {
@@ -1091,7 +1092,22 @@ impl DirEntry {
         })
     }
 
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
+    fn from_entry(depth: usize, ent: &fs::DirEntry) -> Result<DirEntry> {
+        use std::os::unix::fs::DirEntryExt;
+
+        let ty = ent.file_type().map_err(|err| {
+            Error::from_path(depth, ent.path(), err)
+        })?;
+        Ok(DirEntry {
+            path: ent.path(),
+            ty: ty,
+            follow_link: false,
+            depth: depth,
+        })
+    }
+
+    #[cfg(windows)]
     fn from_link(depth: usize, pb: PathBuf) -> Result<DirEntry> {
         let md = fs::metadata(&pb).map_err(|err| {
             Error::from_path(depth, pb.clone(), err)
@@ -1120,10 +1136,25 @@ impl DirEntry {
             ino: md.ino(),
         })
     }
+
+    #[cfg(not(any(unix, windows)))]
+    fn from_link(depth: usize, pb: PathBuf) -> Result<DirEntry> {
+        use std::os::unix::fs::MetadataExt;
+
+        let md = fs::metadata(&pb).map_err(|err| {
+            Error::from_path(depth, pb.clone(), err)
+        })?;
+        Ok(DirEntry {
+            path: pb,
+            ty: md.file_type(),
+            follow_link: true,
+            depth: depth,
+        })
+    }
 }
 
 impl Clone for DirEntry {
-    #[cfg(not(unix))]
+    #[cfg(windows)]
     fn clone(&self) -> DirEntry {
         DirEntry {
             path: self.path.clone(),
@@ -1135,6 +1166,17 @@ impl Clone for DirEntry {
     }
 
     #[cfg(unix)]
+    fn clone(&self) -> DirEntry {
+        DirEntry {
+            path: self.path.clone(),
+            ty: self.ty,
+            follow_link: self.follow_link,
+            depth: self.depth,
+            ino: self.ino,
+        }
+    }
+
+    #[cfg(not(any(unix, windows)))]
     fn clone(&self) -> DirEntry {
         DirEntry {
             path: self.path.clone(),
