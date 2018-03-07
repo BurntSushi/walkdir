@@ -719,7 +719,7 @@ impl IntoIter {
     ///         Some(Ok(entry)) => entry,
     ///     };
     ///     if is_hidden(&entry) {
-    ///         if entry.file_type().is_dir() {
+    ///         if entry.is_dir() {
     ///             it.skip_current_dir();
     ///         }
     ///         continue;
@@ -1060,7 +1060,7 @@ impl DirEntry {
     /// This works around a bug in Rust's standard library:
     /// https://github.com/rust-lang/rust/issues/46484
     #[cfg(windows)]
-    fn is_dir(&self) -> bool {
+    pub fn is_dir(&self) -> bool {
         use std::os::windows::fs::MetadataExt;
         use winapi::um::winnt::FILE_ATTRIBUTE_DIRECTORY;
         self.metadata.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0
@@ -1068,7 +1068,7 @@ impl DirEntry {
 
     /// Returns true if and only if this entry points to a directory.
     #[cfg(not(windows))]
-    fn is_dir(&self) -> bool {
+    pub fn is_dir(&self) -> bool {
         self.ty.is_dir()
     }
 
@@ -1343,7 +1343,7 @@ impl<P> FilterEntry<IntoIter, P> where P: FnMut(&DirEntry) -> bool {
     ///         Some(Ok(entry)) => entry,
     ///     };
     ///     if is_hidden(&entry) {
-    ///         if entry.file_type().is_dir() {
+    ///         if entry.is_dir() {
     ///             it.skip_current_dir();
     ///         }
     ///         continue;

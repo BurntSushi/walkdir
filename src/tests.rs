@@ -72,7 +72,7 @@ impl Tree {
             let dentry = try!(result);
 
             let tree =
-            if dentry.file_type().is_dir() {
+            if dentry.is_dir() {
                 let any_contents = contents_of_dir_at_depth.remove(
                     &(dentry.depth+1));
             Tree::Dir(pb(dentry.file_name()), any_contents.unwrap_or_default())
@@ -80,7 +80,7 @@ impl Tree {
                 if dentry.file_type().is_symlink() {
                     let src = try!(dentry.path().read_link());
                     let dst = pb(dentry.file_name());
-                    let dir = dentry.path().is_dir();
+                    let dir = dentry.is_dir();
                     Tree::Symlink { src: src, dst: dst, dir: dir }
                 } else {
                     Tree::File(pb(dentry.file_name()))
@@ -302,7 +302,7 @@ impl Iterator for WalkEventIter {
             None => None,
             Some(Err(err)) => Some(Err(From::from(err))),
             Some(Ok(dent)) => {
-                if dent.file_type().is_dir() {
+                if dent.is_dir() {
                     self.depth += 1;
                     Some(Ok(WalkEvent::Dir(dent)))
                 } else {
@@ -712,7 +712,7 @@ fn walk_dir_filter() {
                      .into_iter()
                      .filter_entry(move |d| {
                          let n = d.file_name().to_string_lossy().into_owned();
-                         !d.file_type().is_dir()
+                         !d.is_dir()
                          || n.starts_with("f")
                          || d.path() == &*tmp_path
                      });
