@@ -669,7 +669,8 @@ pub struct DirEntry {
     /// The underlying inode number (Unix only).
     #[cfg(unix)]
     ino: u64,
-    /// The underlying metadata (Windows only).
+    /// The underlying metadata (Windows only). We store this on Windows
+    /// because this comes for free while reading a directory.
     ///
     /// We use this to determine whether an entry is a directory or not, which
     /// works around a bug in Rust's standard library:
@@ -1076,6 +1077,20 @@ impl DirEntry {
     /// [`std::fs::metadata`]: https://doc.rust-lang.org/std/fs/fn.metadata.html
     /// [`std::fs::symlink_metadata`]: https://doc.rust-lang.org/stable/std/fs/fn.symlink_metadata.html
     pub fn metadata(&self) -> Result<fs::Metadata> {
+        self.metadata_internal()
+    }
+
+    #[cfg(windows)]
+    fn metadata_internal(&self) -> Result<fs::Metadata> {
+        if self.follow_link {
+            fs::metadata(&self.path)
+        } else {
+            Ok(self.metadata.clone())
+        }.map_err(|err| Error::from_entry(self, err))
+    }
+
+    #[cfg(not(windows))]
+    fn metadata_internal(&self) -> Result<fs::Metadata> {
         if self.follow_link {
             fs::metadata(&self.path)
         } else {
@@ -1131,13 +1146,13 @@ impl DirEntry {
         self.ty.is_dir()
     }
 
-    #[cfg(not(unix))]
+    #[cfg(windows)]
     fn from_entry(depth: usize, ent: &fs::DirEntry) -> Result<DirEntry> {
         let path = ent.path();
         let ty = ent.file_type().map_err(|err| {
             Error::from_path(depth, path.clone(), err)
         })?;
-        let md = fs::metadata(&path).map_err(|err| {
+        let md = ent.metadata().map_err(|err| {
             Error::from_path(depth, path.clone(), err)
         })?;
         Ok(DirEntry {
@@ -1162,6 +1177,21 @@ impl DirEntry {
             follow_link: false,
             depth: depth,
             ino: ent.ino(),
+        })
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    fn from_entry(depth: usize, ent: &fs::DirEntry) -> Result<DirEntry> {
+        use std::os::unix::fs::DirEntryExt;
+
+        let ty = ent.file_type().map_err(|err| {
+            Error::from_path(depth, ent.path(), err)
+        })?;
+        Ok(DirEntry {
+            path: ent.path(),
+            ty: ty,
+            follow_link: false,
+            depth: depth,
         })
     }
 
@@ -1194,6 +1224,21 @@ impl DirEntry {
             ino: md.ino(),
         })
     }
+
+    #[cfg(not(any(unix, windows)))]
+    fn from_link(depth: usize, pb: PathBuf) -> Result<DirEntry> {
+        use std::os::unix::fs::MetadataExt;
+
+        let md = fs::metadata(&pb).map_err(|err| {
+            Error::from_path(depth, pb.clone(), err)
+        })?;
+        Ok(DirEntry {
+            path: pb,
+            ty: md.file_type(),
+            follow_link: true,
+            depth: depth,
+        })
+    }
 }
 
 impl Clone for DirEntry {
@@ -1209,6 +1254,17 @@ impl Clone for DirEntry {
     }
 
     #[cfg(unix)]
+    fn clone(&self) -> DirEntry {
+        DirEntry {
+            path: self.path.clone(),
+            ty: self.ty,
+            follow_link: self.follow_link,
+            depth: self.depth,
+            ino: self.ino,
+        }
+    }
+
+    #[cfg(not(any(unix, windows)))]
     fn clone(&self) -> DirEntry {
         DirEntry {
             path: self.path.clone(),
