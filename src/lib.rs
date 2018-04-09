@@ -968,6 +968,15 @@ impl DirEntry {
         &self.path
     }
 
+    /// The full path that this entry represents.
+    ///
+    /// Analogous to [`path`], but moves ownership of the path.
+    ///
+    /// [`path`]: struct.DirEntry.html#method.path
+    pub fn into_path(self) -> PathBuf {
+        self.path
+    }
+
     /// Returns `true` if and only if this entry was created from a symbolic
     /// link. This is unaffected by the [`follow_links`] setting.
     ///
