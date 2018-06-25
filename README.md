@@ -20,7 +20,7 @@ Dual-licensed under MIT or the [UNLICENSE](http://unlicense.org).
 To use this crate, add `walkdir` as a dependency to your project's
 `Cargo.toml`:
 
-```
+```toml
 [dependencies]
 walkdir = "2"
 ```
@@ -111,7 +111,7 @@ allocations as possible.
 I haven't recorded any benchmarks, but here are some things you can try with a
 local checkout of `walkdir`:
 
-```
+```sh
 # The directory you want to recursively walk:
 DIR=$HOME
 

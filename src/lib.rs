@@ -8,7 +8,7 @@ efficiently skip descending into directories.
 To use this crate, add `walkdir` as a dependency to your project's
 `Cargo.toml`:
 
-```text
+```toml
 [dependencies]
 walkdir = "2"
 ```
@@ -1182,8 +1182,6 @@ impl DirEntry {
 
     #[cfg(not(any(unix, windows)))]
     fn from_entry(depth: usize, ent: &fs::DirEntry) -> Result<DirEntry> {
-        use std::os::unix::fs::DirEntryExt;
-
         let ty = ent.file_type().map_err(|err| {
             Error::from_path(depth, ent.path(), err)
         })?;
@@ -1227,8 +1225,6 @@ impl DirEntry {
 
     #[cfg(not(any(unix, windows)))]
     fn from_link(depth: usize, pb: PathBuf) -> Result<DirEntry> {
-        use std::os::unix::fs::MetadataExt;
-
         let md = fs::metadata(&pb).map_err(|err| {
             Error::from_path(depth, pb.clone(), err)
         })?;
@@ -1271,7 +1267,6 @@ impl Clone for DirEntry {
             ty: self.ty,
             follow_link: self.follow_link,
             depth: self.depth,
-            ino: self.ino,
         }
     }
 }
