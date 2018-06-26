@@ -484,7 +484,7 @@ impl WalkDir {
     #[cfg(windows)]
     fn get_root_device(&self) -> Result<u64> {
         windows::windows_file_handle_info(&self.root)
-            .map(|d|d.dwVolumeSerialNumber as u64)
+            .map(|d| d.dwVolumeSerialNumber as u64)
             .map_err(|e| Error::from_path(0, self.root.clone(), e))
     }
 }
@@ -849,7 +849,7 @@ impl IntoIter {
     #[cfg(windows)]
     fn is_same_file_system(&self, dent: &DirEntry) -> Result<bool> {
         let by_handle_file_info = windows::windows_file_handle_info(&dent.path)
-            .map_err(|err| { Error::from_entry(dent, err) })?;
+            .map_err(|err| Error::from_entry(dent, err))?;
         // We cannot take the error from self since it's borrowed, so we make a new error.
         // If the root_device is unknown, every entry will fail.
         match self.opts.root_device {
@@ -868,8 +868,7 @@ impl IntoIter {
             dent = itry!(self.follow(dent));
         }
         if self.opts.same_file_system && dent.depth != 0 {
-            let same_file_system = itry!(self.is_same_file_system(&dent));
-            if !same_file_system {
+            if !itry!(self.is_same_file_system(&dent)) {
                 return None
             }
         }
