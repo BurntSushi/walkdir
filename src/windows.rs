@@ -2,9 +2,9 @@ use std::io::Error;
 use std::mem;
 use std::path::PathBuf;
 
-use self::winapi::um::fileapi::{GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION};
-use self::winapi::um::winbase::FILE_FLAG_BACKUP_SEMANTICS;
-use self::winapi::um::winnt::HANDLE;
+use winapi::um::fileapi::{GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION};
+use winapi::um::winbase::FILE_FLAG_BACKUP_SEMANTICS;
+use winapi::um::winnt::HANDLE;
 
 /// uses winapi to get Windows file metadata
 pub fn windows_file_handle_info(pbuf: &PathBuf) -> Result<BY_HANDLE_FILE_INFORMATION, Error> {
