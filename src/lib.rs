@@ -251,7 +251,11 @@ struct WalkDirOptions {
     >>,
     contents_first: bool,
     same_file_system: bool,
+    #[cfg(unix)]
     root_device: Option<Result<u64>>,
+    #[cfg(windows)]
+    root_device: Option<Result<i32>>,
+    root_path: PathBuf,
 }
 
 impl fmt::Debug for WalkDirOptions {
@@ -271,6 +275,7 @@ impl fmt::Debug for WalkDirOptions {
             .field("contents_first", &self.contents_first)
             .field("same_file_system", &self.same_file_system)
             .field("root_device", &self.root_device)
+            .field("root_path", &self.root_path)
             .finish()
     }
 }
@@ -292,6 +297,7 @@ impl WalkDir {
                 contents_first: false,
                 same_file_system: false,
                 root_device: None,
+                root_path: root.as_ref().to_path_buf(),
             },
             root: root.as_ref().to_path_buf(),
         }
@@ -464,29 +470,27 @@ impl WalkDir {
     pub fn same_file_system(mut self, yes: bool) -> Self {
         self.opts.same_file_system = yes;
         if self.opts.same_file_system == true {
-            self.opts.root_device = Some(self.get_root_device());
+            let device_result = get_device_num(&self.root)
+                .map_err(|e| Error::from_path(0, self.root.clone(), e));
+            self.opts.root_device = Some(device_result);
         } else {
             self.opts.root_device = None;
         }
         self
 
     }
+}
 
-    #[cfg(unix)]
-    fn get_root_device(&self) -> Result<u64> {
-        use std::os::unix::fs::MetadataExt;
-        self.root.metadata()
-            .map(|md| md.dev())
-            .map_err(|e| Error::from_path(0, self.root.clone(),e))
+#[cfg(unix)]
+fn get_device_num<P: AsRef<Path>>(path: P)-> std::io::Result<u64> {
+    use std::os::unix::fs::MetadataExt;
+    path.as_ref().metadata()
+        .map(|md| md.dev())
+}
 
-    }
-
-    #[cfg(windows)]
-    fn get_root_device(&self) -> Result<u64> {
-        windows::windows_file_handle_info(&self.root)
-            .map(|d| d.dwVolumeSerialNumber as u64)
-            .map_err(|e| Error::from_path(0, self.root.clone(), e))
-    }
+#[cfg(windows)]
+fn get_device_num<P: AsRef<Path>>(path: P) -> std::io::Result<i32> {
+    windows::windows_file_handle_info(path)
 }
 
 impl IntoIterator for WalkDir {
@@ -832,31 +836,25 @@ impl IntoIter {
         FilterEntry { it: self, predicate: predicate }
     }
 
-    #[cfg(unix)]
-    fn is_same_file_system(&self, dent: &DirEntry) -> Result<bool> {
-        use std::os::unix::fs::MetadataExt;
-        let metadata = dent.metadata()?;
-        // We cannot take the error from self since its borrowed, so we make a new error.
-        // If the root_device is unknown, every entry will fail.
-        match self.opts.root_device {
-            Some(Ok(t)) => Ok(metadata.dev() == t),
-            _ => Err(Error::from_entry(dent,std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Root device id was never identified"))),
-        }
-    }
-
-    #[cfg(windows)]
-    fn is_same_file_system(&self, dent: &DirEntry) -> Result<bool> {
-        let by_handle_file_info = windows::windows_file_handle_info(&dent.path)
+    fn is_same_file_system(&mut self, dent: &DirEntry) -> Result<bool> {
+        let dent_dev_num = get_device_num(&dent.path)
             .map_err(|err| Error::from_entry(dent, err))?;
-        // We cannot take the error from self since it's borrowed, so we make a new error.
-        // If the root_device is unknown, every entry will fail.
+
         match self.opts.root_device {
-            Some(Ok(t)) => Ok(by_handle_file_info.dwVolumeSerialNumber as u64 == t),
-            _ => Err(Error::from_entry(dent,std::io::Error::new(
+            Some(Ok(ref d)) => Ok(&dent_dev_num == d),
+            Some(Err(_)) => {
+                // if Err, try to get the device number again and swap the result
+                // of the latest attempt for the old error. This gets around the fact that we
+                // cannot copy the original Error.
+                let new_dev_num_result = get_device_num(&self.opts.root_path)
+                    .map_err(|err| Error::from_path(0, self.opts.root_path.clone(), err));
+                Err(std::mem::replace(&mut self.opts.root_device, Some(new_dev_num_result))
+                    .expect("Bug in walkdir. Could not unwrap root_device Option")
+                    .expect_err("Bug in walkdir. Could not unwrap root_device Error"))
+                },
+            None => Err(Error::from_entry(dent,std::io::Error::new(
                 std::io::ErrorKind::Other,
-                "Root device id was never identified"))),
+                "Bug in walkdir. is_same_file_system called when root_device was None"))),
         }
     }
 
