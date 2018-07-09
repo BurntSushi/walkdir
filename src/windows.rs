@@ -1,12 +1,14 @@
 use std::io::Error;
 use std::mem;
-use std::path::PathBuf;
+use std::path::Path;
 
 use winapi::um::fileapi::{GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION};
 use winapi::um::winbase::FILE_FLAG_BACKUP_SEMANTICS;
 
 /// uses winapi to get Windows file metadata
-pub fn windows_file_handle_info(pbuf: &PathBuf) -> Result<BY_HANDLE_FILE_INFORMATION, Error> {
+pub fn windows_file_handle_info<P: AsRef<Path>>(
+    pbuf: P,
+) -> Result<BY_HANDLE_FILE_INFORMATION, Error> {
     use std::fs::OpenOptions;
     use std::os::windows::prelude::*;
 
@@ -17,15 +19,16 @@ pub fn windows_file_handle_info(pbuf: &PathBuf) -> Result<BY_HANDLE_FILE_INFORMA
         .write(false)
         .read(true)
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
-        .open(pbuf.as_path())?;
+        .open(pbuf.as_ref())?;
 
-    let mut ainfo = mem::zeroed();
-    let code = unsafe {
-        GetFileInformationByHandle(opened_file.as_raw_handle(), &mut ainfo)
-    };
-    if code == 0 {
-        Err(Error::last_os_error())
-    } else {
-        Ok(ainfo)
+    unsafe {
+        let mut ainfo = mem::zeroed();
+        let code = GetFileInformationByHandle(opened_file.as_raw_handle(), &mut ainfo);
+        // 0 is an error
+        if code == 0 {
+            Err(Error::last_os_error())
+        } else {
+            Ok(ainfo)
+        }
     }
 }

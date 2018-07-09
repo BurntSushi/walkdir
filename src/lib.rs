@@ -254,7 +254,7 @@ struct WalkDirOptions {
     #[cfg(unix)]
     root_device: Option<Result<u64>>,
     #[cfg(windows)]
-    root_device: Option<Result<i32>>,
+    root_device: Option<Result<u32>>,
     root_path: PathBuf,
 }
 
@@ -489,8 +489,8 @@ fn get_device_num<P: AsRef<Path>>(path: P)-> std::io::Result<u64> {
 }
 
 #[cfg(windows)]
-fn get_device_num<P: AsRef<Path>>(path: P) -> std::io::Result<i32> {
-    windows::windows_file_handle_info(path)
+fn get_device_num<P: AsRef<Path>>(path: P) -> std::io::Result<u32> {
+    windows::windows_file_handle_info(path).map(|info| info.dwVolumeSerialNumber)
 }
 
 impl IntoIterator for WalkDir {
