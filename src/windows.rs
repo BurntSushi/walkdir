@@ -20,14 +20,13 @@ pub fn windows_file_handle_info(pbuf: &PathBuf) -> Result<BY_HANDLE_FILE_INFORMA
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
         .open(pbuf.as_path())?;
 
-    unsafe {
-        let mut ainfo = mem::zeroed();
-
-        let return_code = GetFileInformationByHandle(opened_file.as_raw_handle(), &mut ainfo);
-        // 0 is an error
-        match return_code {
-            0_i32 => Err(Error::last_os_error()),
-            _ => Ok(ainfo),
-        }
+    let mut ainfo = mem::zeroed();
+    let code = unsafe {
+        GetFileInformationByHandle(opened_file.as_raw_handle(), &mut ainfo)
+    };
+    if code == 0 {
+        Err(Error::last_os_error())
+    } else {
+        Ok(ainfo)
     }
 }
