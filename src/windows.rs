@@ -4,7 +4,6 @@ use std::path::PathBuf;
 
 use winapi::um::fileapi::{GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION};
 use winapi::um::winbase::FILE_FLAG_BACKUP_SEMANTICS;
-use winapi::um::winnt::HANDLE;
 
 /// uses winapi to get Windows file metadata
 pub fn windows_file_handle_info(pbuf: &PathBuf) -> Result<BY_HANDLE_FILE_INFORMATION, Error> {
