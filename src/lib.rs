@@ -133,6 +133,8 @@ pub use unix::DirEntryExt;
 mod tests;
 #[cfg(unix)]
 mod unix;
+#[cfg(windows)]
+mod windows;
 
 /// Like try, but for iterators that return [`Option<Result<_, _>>`].
 ///
@@ -248,6 +250,12 @@ struct WalkDirOptions {
         FnMut(&DirEntry,&DirEntry) -> Ordering + Send + Sync + 'static
     >>,
     contents_first: bool,
+    same_file_system: bool,
+    #[cfg(unix)]
+    root_device: Option<Result<u64>>,
+    #[cfg(windows)]
+    root_device: Option<Result<i32>>,
+    root_path: PathBuf,
 }
 
 impl fmt::Debug for WalkDirOptions {
@@ -265,6 +273,9 @@ impl fmt::Debug for WalkDirOptions {
             .field("max_depth", &self.max_depth)
             .field("sorter", &sorter_str)
             .field("contents_first", &self.contents_first)
+            .field("same_file_system", &self.same_file_system)
+            .field("root_device", &self.root_device)
+            .field("root_path", &self.root_path)
             .finish()
     }
 }
@@ -284,6 +295,9 @@ impl WalkDir {
                 max_depth: ::std::usize::MAX,
                 sorter: None,
                 contents_first: false,
+                same_file_system: false,
+                root_device: None,
+                root_path: root.as_ref().to_path_buf(),
             },
             root: root.as_ref().to_path_buf(),
         }
@@ -449,6 +463,34 @@ impl WalkDir {
         self.opts.contents_first = yes;
         self
     }
+
+    /// Do not cross filesystem boundaries.
+    /// This stores the device number of the starting
+    /// location.
+    pub fn same_file_system(mut self, yes: bool) -> Self {
+        self.opts.same_file_system = yes;
+        if self.opts.same_file_system == true {
+            let device_result = get_device_num(&self.root)
+                .map_err(|e| Error::from_path(0, self.root.clone(), e));
+            self.opts.root_device = Some(device_result);
+        } else {
+            self.opts.root_device = None;
+        }
+        self
+
+    }
+}
+
+#[cfg(unix)]
+fn get_device_num<P: AsRef<Path>>(path: P)-> std::io::Result<u64> {
+    use std::os::unix::fs::MetadataExt;
+    path.as_ref().metadata()
+        .map(|md| md.dev())
+}
+
+#[cfg(windows)]
+fn get_device_num<P: AsRef<Path>>(path: P) -> std::io::Result<i32> {
+    windows::windows_file_handle_info(path)
 }
 
 impl IntoIterator for WalkDir {
@@ -794,12 +836,39 @@ impl IntoIter {
         FilterEntry { it: self, predicate: predicate }
     }
 
+    fn is_same_file_system(&mut self, dent: &DirEntry) -> Result<bool> {
+        let dent_dev_num = get_device_num(&dent.path)
+            .map_err(|err| Error::from_entry(dent, err))?;
+
+        match self.opts.root_device {
+            Some(Ok(ref d)) => Ok(&dent_dev_num == d),
+            Some(Err(_)) => {
+                // if Err, try to get the device number again and swap the result
+                // of the latest attempt for the old error. This gets around the fact that we
+                // cannot copy the original Error.
+                let new_dev_num_result = get_device_num(&self.opts.root_path)
+                    .map_err(|err| Error::from_path(0, self.opts.root_path.clone(), err));
+                Err(std::mem::replace(&mut self.opts.root_device, Some(new_dev_num_result))
+                    .expect("Bug in walkdir. Could not unwrap root_device Option")
+                    .expect_err("Bug in walkdir. Could not unwrap root_device Error"))
+                },
+            None => Err(Error::from_entry(dent,std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Bug in walkdir. is_same_file_system called when root_device was None"))),
+        }
+    }
+
     fn handle_entry(
         &mut self,
         mut dent: DirEntry,
     ) -> Option<Result<DirEntry>> {
         if self.opts.follow_links && dent.file_type().is_symlink() {
             dent = itry!(self.follow(dent));
+        }
+        if self.opts.same_file_system && dent.depth != 0 {
+            if !itry!(self.is_same_file_system(&dent)) {
+                return None
+            }
         }
         let is_normal_dir = !dent.file_type().is_symlink() && dent.is_dir();
         if is_normal_dir {
