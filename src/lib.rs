@@ -1095,7 +1095,6 @@ impl DirEntry {
         }.map_err(|err| Error::from_entry(self, err))
     }
 
-
     /// Return the file type for the file that this entry points to.
     ///
     /// If this is a symbolic link and [`follow_links`] is `true`, then this
@@ -1125,7 +1124,6 @@ impl DirEntry {
         self.depth
     }
 
-    #[cfg(windows)]
     /// Returns true if and only if this entry points to a directory.
     ///
     /// This works around a bug in Rust's standard library:
