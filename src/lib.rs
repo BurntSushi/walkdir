@@ -867,7 +867,7 @@ impl IntoIter {
         }
         if self.opts.same_file_system && dent.depth != 0 {
             if !itry!(self.is_same_file_system(&dent)) {
-                return None
+                return None;
             }
         }
         let is_normal_dir = !dent.file_type().is_symlink() && dent.is_dir();
