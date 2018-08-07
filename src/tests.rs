@@ -542,6 +542,30 @@ fn walk_dir_sym_follow_dir() {
     assert_tree_eq!(followed, got);
 }
 
+// We cannot mount different volumes for the sake of the test, but
+// on Linux systems we can assume that /sys is a mounted volume.
+#[test]
+#[cfg(target_os = "linux")]
+fn walk_dir_stay_on_file_system() {
+    let actual = td("same_file", vec![
+        td("a", vec![tld("/sys", "alink")]),
+    ]);
+    let unfollowed = td("same_file", vec![
+        td("a", vec![tld("/sys", "alink")]),
+    ]);
+    let (_tmp, got) = dir_setup_with(&actual, |wd| wd);
+    assert_tree_eq!(unfollowed, got);
+
+    let actual = td("same_file", vec![
+        td("a", vec![tld("/sys", "alink")]),
+    ]);
+    let followed = td("same_file", vec![
+        td("a", vec![]),
+    ]);
+    let (_tmp, got) = dir_setup_with(&actual, |wd| wd.follow_links(true).same_file_system(true));
+    assert_tree_eq!(followed, got);
+}
+
 #[test]
 #[cfg(unix)]
 fn walk_dir_sym_detect_loop() {
