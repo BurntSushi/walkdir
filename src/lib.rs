@@ -623,7 +623,7 @@ pub struct DirEntry {
     /// The file type. Necessary for recursive iteration, so store it.
     ty: FileType,
     /// Is set when this entry was created from a symbolic link and the user
-    /// excepts the iterator to follow symbolic links.
+    /// expects the iterator to follow symbolic links.
     follow_link: bool,
     /// The depth at which this entry was generated relative to the root.
     depth: usize,
@@ -650,7 +650,7 @@ impl Iterator for IntoIter {
     /// an error value. The error will be wrapped in an Option::Some.
     fn next(&mut self) -> Option<Result<DirEntry>> {
         if let Some(start) = self.start.take() {
-            let dent = itry!(DirEntry::from_link(0, start));
+            let dent = itry!(DirEntry::from_path(0, start, false));
             if let Some(result) = self.handle_entry(dent) {
                 return Some(result);
             }
@@ -885,7 +885,11 @@ impl IntoIter {
     }
 
     fn follow(&self, mut dent: DirEntry) -> Result<DirEntry> {
-        dent = DirEntry::from_link(self.depth, dent.path().to_path_buf())?;
+        dent = DirEntry::from_path(
+            self.depth,
+            dent.path().to_path_buf(),
+            true,
+        )?;
         // The only way a symlink can cause a loop is if it points
         // to a directory. Otherwise, it always points to a leaf
         // and we can omit any loop checks.
@@ -1119,21 +1123,21 @@ impl DirEntry {
     }
 
     #[cfg(windows)]
-    fn from_link(depth: usize, pb: PathBuf) -> Result<DirEntry> {
+    fn from_path(depth: usize, pb: PathBuf, link: bool) -> Result<DirEntry> {
         let md = fs::metadata(&pb).map_err(|err| {
             Error::from_path(depth, pb.clone(), err)
         })?;
         Ok(DirEntry {
             path: pb,
             ty: md.file_type(),
-            follow_link: true,
+            follow_link: link,
             depth: depth,
             metadata: md,
         })
     }
 
     #[cfg(unix)]
-    fn from_link(depth: usize, pb: PathBuf) -> Result<DirEntry> {
+    fn from_path(depth: usize, pb: PathBuf, link: bool) -> Result<DirEntry> {
         use std::os::unix::fs::MetadataExt;
 
         let md = fs::metadata(&pb).map_err(|err| {
@@ -1142,21 +1146,21 @@ impl DirEntry {
         Ok(DirEntry {
             path: pb,
             ty: md.file_type(),
-            follow_link: true,
+            follow_link: link,
             depth: depth,
             ino: md.ino(),
         })
     }
 
     #[cfg(not(any(unix, windows)))]
-    fn from_link(depth: usize, pb: PathBuf) -> Result<DirEntry> {
+    fn from_path(depth: usize, pb: PathBuf, link: bool) -> Result<DirEntry> {
         let md = fs::metadata(&pb).map_err(|err| {
             Error::from_path(depth, pb.clone(), err)
         })?;
         Ok(DirEntry {
             path: pb,
             ty: md.file_type(),
-            follow_link: true,
+            follow_link: link,
             depth: depth,
         })
     }

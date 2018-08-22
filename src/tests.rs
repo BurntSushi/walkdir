@@ -516,6 +516,21 @@ fn walk_dir_sym_root() {
     assert_eq!(got, vec!["foo/alink/", "foo/alink/a", "foo/alink/b"]);
 }
 
+// See: https://github.com/BurntSushi/ripgrep/issues/984
+#[test]
+#[cfg(unix)]
+fn first_path_not_symlink() {
+    let exp = td("foo", vec![]);
+    let (tmp, _got) = dir_setup(&exp);
+
+    let dents = WalkDir::new(tmp.path().join("foo"))
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(1, dents.len());
+    assert!(!dents[0].path_is_symlink());
+}
+
 #[test]
 #[cfg(unix)]
 fn walk_dir_sym_detect_no_follow_no_loop() {
