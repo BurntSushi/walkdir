@@ -1,6 +1,5 @@
 [package]
 name = "walkdir"
-# remember to update html_root_url
 version = "2.2.0"  #:version
 authors = ["Andrew Gallant <jamslam@gmail.com>"]
 description = "Recursively walk a directory."
@@ -24,7 +23,7 @@ version = "0.3"
 features = ["std", "winnt"]
 
 [dev-dependencies]
-docopt = "0.8"
+docopt = "1"
 quickcheck = { version = "0.6", default-features = false }
 rand = "0.4"
 serde = "1"
