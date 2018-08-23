@@ -20,7 +20,7 @@ same-file = "1"
 
 [target.'cfg(windows)'.dependencies.winapi]
 version = "0.3"
-features = ["std", "winnt"]
+features = ["std", "fileapi", "winbase", "winnt"]
 
 [dev-dependencies]
 docopt = "1"
