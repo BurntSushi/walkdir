@@ -828,3 +828,40 @@ fn walk_dir_send_sync_traits() {
     assert_send::<FilterEntry<IntoIter, u8>>();
     assert_sync::<FilterEntry<IntoIter, u8>>();
 }
+
+// We cannot mount different volumes for the sake of the test, but
+// on Linux systems we can assume that /sys is a mounted volume.
+#[test]
+#[cfg(target_os = "linux")]
+fn walk_dir_stay_on_file_system() {
+    // If for some reason /sys doesn't exist or isn't a directory, just skip
+    // this test.
+    if !Path::new("/sys").is_dir() {
+        return;
+    }
+
+    let actual = td("same_file", vec![
+        td("a", vec![tld("/sys", "alink")]),
+    ]);
+    let unfollowed = td("same_file", vec![
+        td("a", vec![tld("/sys", "alink")]),
+    ]);
+    let (_tmp, got) = dir_setup_with(&actual, |wd| wd);
+    assert_tree_eq!(unfollowed, got);
+
+    // Create a symlink to sys and enable following symlinks. If the
+    // same_file_system option doesn't work, then this probably will hit a
+    // permission error. Otherwise, it should just skip over the symlink
+    // completely.
+    let actual = td("same_file", vec![
+        td("a", vec![tld("/sys", "alink")]),
+    ]);
+    let followed = td("same_file", vec![
+        td("a", vec![td("alink", vec![])]),
+    ]);
+    let (_tmp, got) = dir_setup_with(&actual, |wd| {
+        wd.follow_links(true).same_file_system(true)
+    });
+    assert_tree_eq!(followed, got);
+}
+
