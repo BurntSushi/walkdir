@@ -17,6 +17,9 @@ build: false
 test_script:
   - cargo build --verbose
   - cargo test --verbose
+  - cargo generate-lockfile -Z minimal-versions
+  - cargo build --verbose
+  - cargo test --verbose
 
 branches:
   only:

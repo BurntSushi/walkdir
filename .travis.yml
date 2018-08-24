@@ -15,6 +15,11 @@ script:
   - cargo build --verbose
   - cargo test --verbose
   - cargo doc
+  - if [ "$TRAVIS_RUST_VERSION" = "nightly" ]; then
+    cargo +nightly generate-lockfile -Z minimal-versions;
+    cargo build --verbose;
+    cargo test --verbose;
+    fi
 branches:
   only:
     - master
