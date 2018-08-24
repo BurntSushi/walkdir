@@ -16,14 +16,14 @@ travis-ci = { repository = "BurntSushi/walkdir" }
 appveyor = { repository = "BurntSushi/walkdir" }
 
 [dependencies]
-same-file = "1"
+same-file = "1.0.1"
 
 [target.'cfg(windows)'.dependencies.winapi]
 version = "0.3"
 features = ["std", "fileapi", "winbase", "winnt"]
 
 [dev-dependencies]
-docopt = "1"
+docopt = "1.0.1"
 quickcheck = { version = "0.6", default-features = false }
 rand = "0.4"
 serde = "1"
