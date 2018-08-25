@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::collections::HashMap;
 
 use quickcheck::{Arbitrary, Gen, QuickCheck, StdGen};
-use rand::{self, Rng};
+use rand::{self, Rng, RngCore};
 
 use super::{DirEntry, WalkDir, IntoIter, Error, ErrorInner};
 
