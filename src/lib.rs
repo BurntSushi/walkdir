@@ -112,6 +112,8 @@ extern crate rand;
 extern crate same_file;
 #[cfg(windows)]
 extern crate winapi;
+#[cfg(windows)]
+extern crate winapi_util;
 
 use std::cmp::{Ordering, min};
 use std::error;
@@ -132,8 +134,6 @@ pub use unix::DirEntryExt;
 mod tests;
 #[cfg(unix)]
 mod unix;
-#[cfg(windows)]
-mod windows;
 
 /// Like try, but for iterators that return [`Option<Result<_, _>>`].
 ///
@@ -1666,8 +1666,10 @@ fn device_num<P: AsRef<Path>>(path: P)-> std::io::Result<u64> {
 
  #[cfg(windows)]
 fn device_num<P: AsRef<Path>>(path: P) -> std::io::Result<u64> {
-    windows::windows_file_handle_info(path)
-        .map(|info| info.dwVolumeSerialNumber as u64)
+    use winapi_util::{Handle, file};
+
+    let h = Handle::from_path_any(path)?;
+    file::information(h).map(|info| info.volume_serial_number())
 }
 
 #[cfg(not(any(unix, windows)))]
