@@ -20,7 +20,10 @@ same-file = "1.0.1"
 
 [target.'cfg(windows)'.dependencies.winapi]
 version = "0.3"
-features = ["std", "fileapi", "winbase", "winnt"]
+features = ["std", "winnt"]
+
+[target.'cfg(windows)'.dependencies.winapi-util]
+version = "0.1.1"
 
 [dev-dependencies]
 docopt = "1.0.1"
