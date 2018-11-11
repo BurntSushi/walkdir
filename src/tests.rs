@@ -531,6 +531,51 @@ fn first_path_not_symlink() {
     assert!(!dents[0].path_is_symlink());
 }
 
+// Like first_path_not_symlink, but checks that the first path is not reported
+// as a symlink even when we are supposed to be following them.
+#[test]
+#[cfg(unix)]
+fn first_path_not_symlink_follow() {
+    let exp = td("foo", vec![]);
+    let (tmp, _got) = dir_setup(&exp);
+
+    let dents = WalkDir::new(tmp.path().join("foo"))
+        .follow_links(true)
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(1, dents.len());
+    assert!(!dents[0].path_is_symlink());
+}
+
+// See: https://github.com/BurntSushi/walkdir/issues/115
+#[test]
+#[cfg(unix)]
+fn first_path_is_followed() {
+    let exp = td("foo", vec![
+        td("a", vec![tf("a1"), tf("a2")]),
+        td("b", vec![tlf("../a/a1", "alink")]),
+    ]);
+    let (tmp, _got) = dir_setup(&exp);
+
+    let dents = WalkDir::new(tmp.path().join("foo/b/alink"))
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(1, dents.len());
+    assert!(dents[0].file_type().is_symlink());
+    assert!(dents[0].metadata().unwrap().file_type().is_symlink());
+
+    let dents = WalkDir::new(tmp.path().join("foo/b/alink"))
+        .follow_links(true)
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(1, dents.len());
+    assert!(!dents[0].file_type().is_symlink());
+    assert!(!dents[0].metadata().unwrap().file_type().is_symlink());
+}
+
 #[test]
 #[cfg(unix)]
 fn walk_dir_sym_detect_no_follow_no_loop() {

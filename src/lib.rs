@@ -277,7 +277,9 @@ impl WalkDir {
     /// file path `root`. If `root` is a directory, then it is the first item
     /// yielded by the iterator. If `root` is a file, then it is the first
     /// and only item yielded by the iterator. If `root` is a symlink, then it
-    /// is always followed.
+    /// is always followed for the purposes of directory traversal. (A root
+    /// `DirEntry` still obeys its documentation with respect to symlinks and
+    /// the `follow_links` setting.)
     pub fn new<P: AsRef<Path>>(root: P) -> Self {
         WalkDir {
             opts: WalkDirOptions {
@@ -681,7 +683,7 @@ impl Iterator for IntoIter {
                     .map_err(|e| Error::from_path(0, start.clone(), e));
                 self.root_device = Some(itry!(result));
             }
-            let dent = itry!(DirEntry::from_path(0, start, false));
+            let mut dent = itry!(DirEntry::from_path(0, start, false));
             if let Some(result) = self.handle_entry(dent) {
                 return Some(result);
             }
@@ -842,6 +844,20 @@ impl IntoIter {
                     itry!(self.push(&dent));
                 }
             } else {
+                itry!(self.push(&dent));
+            }
+        } else if dent.depth() == 0 && dent.file_type().is_symlink() {
+            // As a special case, if we are processing a root entry, then we
+            // always follow it even if it's a symlink and follow_links is
+            // false. We are careful to not let this change the semantics of
+            // the DirEntry however. Namely, the DirEntry should still respect
+            // the follow_links setting. When it's disabled, it should report
+            // itself as a symlink. When it's enabled, it should always report
+            // itself as the target.
+            let md = itry!(fs::metadata(dent.path()).map_err(|err| {
+                Error::from_path(dent.depth(), dent.path().to_path_buf(), err)
+            }));
+            if md.file_type().is_dir() {
                 itry!(self.push(&dent));
             }
         }
@@ -1181,44 +1197,65 @@ impl DirEntry {
     }
 
     #[cfg(windows)]
-    fn from_path(depth: usize, pb: PathBuf, link: bool) -> Result<DirEntry> {
-        let md = fs::metadata(&pb).map_err(|err| {
-            Error::from_path(depth, pb.clone(), err)
-        })?;
+    fn from_path(depth: usize, pb: PathBuf, follow: bool) -> Result<DirEntry> {
+        let md =
+            if follow {
+                fs::metadata(&pb).map_err(|err| {
+                    Error::from_path(depth, pb.clone(), err)
+                })?
+            } else {
+                fs::symlink_metadata(&pb).map_err(|err| {
+                    Error::from_path(depth, pb.clone(), err)
+                })?
+            };
         Ok(DirEntry {
             path: pb,
             ty: md.file_type(),
-            follow_link: link,
+            follow_link: follow,
             depth: depth,
             metadata: md,
         })
     }
 
     #[cfg(unix)]
-    fn from_path(depth: usize, pb: PathBuf, link: bool) -> Result<DirEntry> {
+    fn from_path(depth: usize, pb: PathBuf, follow: bool) -> Result<DirEntry> {
         use std::os::unix::fs::MetadataExt;
 
-        let md = fs::metadata(&pb).map_err(|err| {
-            Error::from_path(depth, pb.clone(), err)
-        })?;
+        let md =
+            if follow {
+                fs::metadata(&pb).map_err(|err| {
+                    Error::from_path(depth, pb.clone(), err)
+                })?
+            } else {
+                fs::symlink_metadata(&pb).map_err(|err| {
+                    Error::from_path(depth, pb.clone(), err)
+                })?
+            };
         Ok(DirEntry {
             path: pb,
             ty: md.file_type(),
-            follow_link: link,
+            follow_link: follow,
             depth: depth,
             ino: md.ino(),
         })
     }
 
     #[cfg(not(any(unix, windows)))]
-    fn from_path(depth: usize, pb: PathBuf, link: bool) -> Result<DirEntry> {
-        let md = fs::metadata(&pb).map_err(|err| {
-            Error::from_path(depth, pb.clone(), err)
-        })?;
+    fn from_path(depth: usize, pb: PathBuf, follow: bool) -> Result<DirEntry> {
+        let md =
+            if follow {
+                fs::metadata(&pb).map_err(|err| {
+                    Error::from_path(depth, pb.clone(), err)
+                })?
+            } else {
+                fs::symlink_metadata(&pb).map_err(|err| {
+                    Error::from_path(depth, pb.clone(), err)
+                })?
+            };
         Ok(DirEntry {
             path: pb,
             ty: md.file_type(),
-            follow_link: link,
+            follow_link: follow,
             depth: depth,
         })
     }
