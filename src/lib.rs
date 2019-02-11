@@ -164,9 +164,10 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 ///
 /// Results are returned in depth first fashion, with directories yielded
 /// before their contents. If [`contents_first`] is true, contents are yielded
-/// before their directories. The order is unspecified but if [`sort_by`] is
-/// given, directory entries are sorted according to this function. Directory
-/// entries `.` and `..` are always omitted.
+/// before their directories. If [`sort_by`] the directory entries are sorted
+/// according to this function. If it is not then the order is unspecified
+/// (see [`sort_by`] for more information. Directory entries `.` and `..` are
+/// always omitted.
 ///
 /// If an error occurs at any point during iteration, then it is returned in
 /// place of its corresponding directory entry and iteration continues as
@@ -379,6 +380,12 @@ impl WalkDir {
     /// If a compare function is set, the resulting iterator will return all
     /// paths in sorted order. The compare function will be called to compare
     /// entries from the same directory.
+    ///
+    /// If `sort_by` is not called, the order of paths is unspecified. WalkDir
+    /// calls `std::fs::read_dir` to get the directory contents. Currently on
+    /// Unix this uses `opendir` and `readdir`, and on Windows it uses
+    /// `FindFirstFile` and `FindNextFile`. In both cases the order is
+    /// determined by the underlying filesystem.
     ///
     /// ```rust,no-run
     /// use std::cmp;
