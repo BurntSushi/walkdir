@@ -164,10 +164,10 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 ///
 /// Results are returned in depth first fashion, with directories yielded
 /// before their contents. If [`contents_first`] is true, contents are yielded
-/// before their directories. If [`sort_by`] the directory entries are sorted
-/// according to this function. If it is not then the order is unspecified
-/// (see [`sort_by`] for more information. Directory entries `.` and `..` are
-/// always omitted.
+/// before their directories. If [`sort_by`] is used the directory entries are
+/// sorted according to the sorting function. If it is not then the order is
+/// unspecified (see [`sort_by`] for more information). Directory entries
+/// `.` and `..` are always omitted.
 ///
 /// If an error occurs at any point during iteration, then it is returned in
 /// place of its corresponding directory entry and iteration continues as
