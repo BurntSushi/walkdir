@@ -683,7 +683,7 @@ impl Iterator for IntoIter {
                     .map_err(|e| Error::from_path(0, start.clone(), e));
                 self.root_device = Some(itry!(result));
             }
-            let mut dent = itry!(DirEntry::from_path(0, start, false));
+            let dent = itry!(DirEntry::from_path(0, start, false));
             if let Some(result) = self.handle_entry(dent) {
                 return Some(result);
             }
