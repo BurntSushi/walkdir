@@ -10,7 +10,7 @@ readme = "README.md"
 keywords = ["directory", "recursive", "walk", "iterator"]
 categories = ["filesystem"]
 license = "Unlicense/MIT"
-exclude = ["/ci/*", "/.travis.yml", "/Makefile", "/appveyor.yml", "/ctags.rust", "/session.vim"]
+exclude = ["/ci/*", "/.travis.yml", "/appveyor.yml"]
 
 [badges]
 travis-ci = { repository = "BurntSushi/walkdir" }
