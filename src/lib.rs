@@ -114,6 +114,12 @@ extern crate same_file;
 extern crate winapi;
 #[cfg(windows)]
 extern crate winapi_util;
+#[cfg(test)]
+#[macro_use]
+extern crate doc_comment;
+
+#[cfg(test)]
+doctest!("../README.md");
 
 use std::cmp::{Ordering, min};
 use std::error;
