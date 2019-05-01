@@ -11,5 +11,6 @@ if [ "$TRAVIS_RUST_VERSION" = "$MSRV" ]; then
     exit
 fi
 
+cargo build --verbose --all
 cargo doc --verbose
 cargo test --verbose
