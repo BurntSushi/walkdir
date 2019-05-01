@@ -16,6 +16,9 @@ exclude = ["/ci/*", "/.travis.yml", "/appveyor.yml"]
 travis-ci = { repository = "BurntSushi/walkdir" }
 appveyor = { repository = "BurntSushi/walkdir" }
 
+[workspace]
+members = ["walkdir-list"]
+
 [dependencies]
 same-file = "1.0.1"
 
@@ -27,11 +30,6 @@ features = ["std", "winnt"]
 version = "0.1.1"
 
 [dev-dependencies]
-docopt = "1.0.1"
-quickcheck = { version = "0.8", default-features = false }
-rand = "0.6"
-serde = "1"
-serde_derive = "1"
 quickcheck = { version = "0.8.2", default-features = false }
 rand = "0.6.5"
 doc-comment = "0.3"

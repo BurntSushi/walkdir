@@ -1,0 +1,23 @@
+[package]
+publish = false
+name = "walkdir-bin"
+version = "0.0.0"
+authors = ["Andrew Gallant <jamslam@gmail.com>"]
+description = "A simple command line tool for playing with walkdir on the CLI."
+documentation = "https://docs.rs/walkdir"
+homepage = "https://github.com/BurntSushi/walkdir"
+repository = "https://github.com/BurntSushi/walkdir"
+keywords = ["walk", "directory", "recursive", "find"]
+license = "Unlicense OR MIT"
+categories = ["command-line-utilities"]
+edition = "2018"
+
+[[bin]]
+name = "walkdir-list"
+path = "main.rs"
+
+[dependencies]
+atty = "0.2.11"
+bstr = { version = "0.1.2", default-features = false, features = ["std"] }
+clap = { version = "2.33.0", default-features = false }
+walkdir = { version = "*", path = ".." }
