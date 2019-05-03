@@ -30,6 +30,4 @@ features = ["std", "winnt"]
 version = "0.1.1"
 
 [dev-dependencies]
-quickcheck = { version = "0.8.2", default-features = false }
-rand = "0.6.5"
 doc-comment = "0.3"

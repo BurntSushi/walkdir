@@ -107,17 +107,13 @@ for entry in walker.filter_entry(|e| !is_hidden(e)) {
 #![allow(bare_trait_objects)]
 
 #[cfg(test)]
-extern crate quickcheck;
-#[cfg(test)]
-extern crate rand;
+#[macro_use]
+extern crate doc_comment;
 extern crate same_file;
 #[cfg(windows)]
 extern crate winapi;
 #[cfg(windows)]
 extern crate winapi_util;
-#[cfg(test)]
-#[macro_use]
-extern crate doc_comment;
 
 #[cfg(test)]
 doctest!("../README.md");

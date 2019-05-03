@@ -7,9 +7,6 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::collections::HashMap;
 
-use quickcheck::{Arbitrary, Gen, QuickCheck, StdGen};
-use rand::{self, Rng, RngCore};
-
 use super::{DirEntry, WalkDir, IntoIter, Error, ErrorInner};
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -95,14 +92,6 @@ impl Tree {
                 .unwrap_or_default()))
     }
 
-    fn name(&self) -> &Path {
-        match *self {
-            Tree::Dir(ref pb, _) => pb,
-            Tree::File(ref pb) => pb,
-            Tree::Symlink { ref dst, .. } => dst,
-        }
-    }
-
     fn unwrap_singleton(self) -> Tree {
         match self {
             Tree::File(_) | Tree::Symlink { .. } => {
@@ -169,97 +158,6 @@ impl Tree {
                 Tree::Dir(p.clone(), cs)
             }
         }
-    }
-
-    fn dedup(&self) -> Tree {
-        match *self {
-            Tree::Symlink { ref src, ref dst, dir } => {
-                Tree::Symlink { src: src.clone(), dst: dst.clone(), dir: dir }
-            }
-            Tree::File(ref p) => {
-                Tree::File(p.clone())
-            }
-            Tree::Dir(ref p, ref cs) => {
-                let mut nodupes: Vec<Tree> = vec![];
-                for (i, c1) in cs.iter().enumerate() {
-                    if !cs[i+1..].iter().any(|c2| c1.name() == c2.name())
-                        && !nodupes.iter().any(|c2| c1.name() == c2.name()) {
-                        nodupes.push(c1.dedup());
-                    }
-                }
-                Tree::Dir(p.clone(), nodupes)
-            }
-        }
-    }
-
-    fn gen<G: Gen>(g: &mut G, depth: usize) -> Tree {
-        #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-        struct NonEmptyAscii(String);
-
-        impl Arbitrary for NonEmptyAscii {
-            fn arbitrary<G: Gen>(g: &mut G) -> NonEmptyAscii {
-                use std::char::from_u32;
-                let upper_bound = g.size();
-                // We start with a lower bound of `4` to avoid
-                // generating the special file name `con` on Windows,
-                // because such files cannot exist...
-                let size = g.gen_range(4, upper_bound);
-                NonEmptyAscii((0..size)
-                .map(|_| from_u32(g.gen_range(97, 123)).unwrap())
-                .collect())
-            }
-
-            fn shrink(&self) -> Box<Iterator<Item=NonEmptyAscii>> {
-                let mut smaller = vec![];
-                for i in 1..self.0.len() {
-                    let s: String = self.0.chars().skip(i).collect();
-                    smaller.push(NonEmptyAscii(s));
-                }
-                Box::new(smaller.into_iter())
-            }
-        }
-
-        let name = pb(NonEmptyAscii::arbitrary(g).0);
-        if depth == 0 {
-            Tree::File(name)
-        } else {
-            let children: Vec<Tree> =
-                (0..g.gen_range(0, 5))
-                .map(|_| Tree::gen(g, depth-1))
-                .collect();
-            Tree::Dir(name, children)
-        }
-    }
-}
-
-impl Arbitrary for Tree {
-    fn arbitrary<G: Gen>(g: &mut G) -> Tree {
-        let depth = g.gen_range(0, 5);
-        Tree::gen(g, depth).dedup()
-    }
-
-    fn shrink(&self) -> Box<Iterator<Item=Tree>> {
-        let trees: Box<Iterator<Item=Tree>> = match *self {
-            Tree::Symlink { .. } => unimplemented!(),
-            Tree::File(ref path) => {
-                let s = path.to_string_lossy().into_owned();
-                Box::new(s.shrink().map(|s| Tree::File(pb(s))))
-            }
-            Tree::Dir(ref path, ref children) => {
-                let s = path.to_string_lossy().into_owned();
-                if children.is_empty() {
-                    Box::new(s.shrink().map(|s| Tree::Dir(pb(s), vec![])))
-                } else if children.len() == 1 {
-                    let c = &children[0];
-                    Box::new(Some(c.clone()).into_iter().chain(c.shrink()))
-                } else {
-                    Box::new(children
-                             .shrink()
-                             .map(move |cs| Tree::Dir(pb(s.clone()), cs)))
-                }
-            }
-        };
-        Box::new(trees.map(|t| t.dedup()))
     }
 }
 
@@ -328,9 +226,13 @@ impl Drop for TempDir {
 }
 
 fn tmpdir() -> TempDir {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static COUNTER: AtomicUsize = AtomicUsize::new(0);
+
     let p = env::temp_dir();
-    let mut r = rand::thread_rng();
-    let ret = p.join(&format!("rust-{}", r.next_u32()));
+    let idx = COUNTER.fetch_add(1, Ordering::SeqCst);
+    let ret = p.join(&format!("rust-{}", idx));
     fs::create_dir(&ret).unwrap();
     TempDir(ret)
 }
@@ -780,34 +682,6 @@ fn walk_dir_filter() {
                     .collect::<Vec<String>>();
     got.sort();
     assert_eq!(got, vec!["bar", "faz", "foo"]);
-}
-
-#[test]
-fn qc_roundtrip() {
-    fn p(exp: Tree) -> bool {
-        let (_tmp, got) = dir_setup(&exp);
-        exp.canonical() == got.canonical()
-    }
-    QuickCheck::new()
-               .gen(StdGen::new(rand::thread_rng(), 15))
-               .tests(1_000)
-               .max_tests(10_000)
-               .quickcheck(p as fn(Tree) -> bool);
-}
-
-// Same as `qc_roundtrip`, but makes sure `follow_links` doesn't change
-// the behavior of walking a directory *without* symlinks.
-#[test]
-fn qc_roundtrip_no_symlinks_with_follow() {
-    fn p(exp: Tree) -> bool {
-        let (_tmp, got) = dir_setup_with(&exp, |wd| wd.follow_links(true));
-        exp.canonical() == got.canonical()
-    }
-    QuickCheck::new()
-               .gen(StdGen::new(rand::thread_rng(), 15))
-               .tests(1_000)
-               .max_tests(10_000)
-               .quickcheck(p as fn(Tree) -> bool);
 }
 
 #[test]
