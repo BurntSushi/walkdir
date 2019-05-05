@@ -7,7 +7,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::collections::HashMap;
 
-use super::{DirEntry, WalkDir, IntoIter, Error, ErrorInner};
+use {DirEntry, WalkDir, IntoIter, Error, ErrorInner};
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum Tree {
