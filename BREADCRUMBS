@@ -1,0 +1,17 @@
+For the recursive directory iterator, there's no way around storing the full
+joined file path for each entry. So our only salvation is to amortize the
+allocation necessary for storing that full path. There's two pieces to this:
+
+First, part of it requires the caller to provide scratch space for a dir entry.
+We return the next dir entry via this mechanism.
+
+Second, we need to keep copies of all paths up the current stack, BUT, these
+paths can be reused as we push and pop things from the stack. So we should be
+able to use a memory pool for these.
+
+Other note: getting openat to work correctly with the file descriptor limit is
+tricky. It looks like we're going to have to only use openat when we still have
+the open file descriptor, but otherwise also support using plain open when the
+file descriptor has been closed (and its stream read into memory). This seems
+fine, since in practice, the file descriptor limit is big enough to handle most
+directory trees without running out.

@@ -13,6 +13,7 @@
 
 use std::error::Error;
 use std::ffi::OsStr;
+use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process;
@@ -63,11 +64,20 @@ where
     W1: io::Write,
     W2: io::Write,
 {
-    let mut count: u64 = 0;
-    for dir in &args.dirs {
+    fn count_walkdir<W: io::Write>(
+        args: &Args,
+        mut stderr: W,
+        dir: &Path,
+    ) -> Result<CountResult> {
+        let mut res = args.empty_count_result();
         for result in args.walkdir(dir) {
             match result {
-                Ok(_) => count += 1,
+                Ok(dent) => {
+                    res.count += 1;
+                    if let Some(ref mut size) = res.size {
+                        *size = dent.metadata()?.len();
+                    }
+                }
                 Err(err) => {
                     if !args.ignore_errors {
                         writeln!(stderr, "ERROR: {}", err)?;
@@ -75,8 +85,179 @@ where
                 }
             }
         }
+        Ok(res)
     }
-    writeln!(stdout, "{}", count)?;
+
+    fn count_std<W: io::Write>(
+        args: &Args,
+        mut stderr: W,
+        dir: &Path,
+    ) -> Result<CountResult> {
+        let mut res = args.empty_count_result();
+        for result in fs::read_dir(dir)? {
+            match result {
+                Ok(dent) => {
+                    res.count += 1;
+                    if let Some(ref mut size) = res.size {
+                        *size = dent.metadata()?.len();
+                    }
+                }
+                Err(err) => {
+                    if !args.ignore_errors {
+                        writeln!(stderr, "ERROR: {}", err)?;
+                    }
+                }
+            }
+        }
+        Ok(res)
+    }
+
+    #[cfg(windows)]
+    fn count_windows<W: io::Write>(
+        args: &Args,
+        mut stderr: W,
+        dir: &Path,
+    ) -> Result<CountResult> {
+        use walkdir::os::windows;
+
+        let mut res = args.empty_count_result();
+        let mut handle = windows::FindHandle::open(dir)?;
+        let mut dent = windows::DirEntry::empty();
+        loop {
+            match handle.read_into(&mut dent) {
+                Ok(true) => {
+                    res.count += 1;
+                    if let Some(ref mut size) = res.size {
+                        let md = dir.join(dent.file_name_os()).metadata()?;
+                        *size = md.len();
+                    }
+                }
+                Ok(false) => break,
+                Err(err) => {
+                    if !args.ignore_errors {
+                        writeln!(stderr, "ERROR: {}", err)?;
+                    }
+                }
+            }
+        }
+        Ok(res)
+    }
+
+    #[cfg(not(windows))]
+    fn count_windows<W: io::Write>(
+        _args: &Args,
+        _stderr: W,
+        _dir: &Path,
+    ) -> Result<CountResult> {
+        err!("cannot use --flat-windows on non-Windows platform")
+    }
+
+    #[cfg(unix)]
+    fn count_unix<W: io::Write>(
+        args: &Args,
+        mut stderr: W,
+        dir: &Path,
+    ) -> Result<CountResult> {
+        use walkdir::os::unix;
+
+        let mut res = args.empty_count_result();
+        let mut udir = unix::Dir::open(dir)?;
+        let mut dent = unix::DirEntry::empty();
+        loop {
+            match udir.read_into(&mut dent) {
+                Ok(true) => {
+                    res.count += 1;
+                    if let Some(ref mut size) = res.size {
+                        let md = dir.join(dent.file_name_os()).metadata()?;
+                        *size = md.len();
+                    }
+                }
+                Ok(false) => break,
+                Err(err) => {
+                    if !args.ignore_errors {
+                        writeln!(stderr, "ERROR: {}", err)?;
+                    }
+                }
+            }
+        }
+        Ok(res)
+    }
+
+    #[cfg(not(unix))]
+    fn count_unix<W: io::Write>(
+        _args: &Args,
+        _stderr: W,
+        _dir: &Path,
+    ) -> Result<CountResult> {
+        err!("cannot use --flat-unix on non-Unix platform")
+    }
+
+    #[cfg(target_os = "linux")]
+    fn count_linux<W: io::Write>(
+        args: &Args,
+        mut stderr: W,
+        dir: &Path,
+    ) -> Result<CountResult> {
+        use std::os::unix::io::AsRawFd;
+        use walkdir::os::{linux, unix};
+
+        let mut res = args.empty_count_result();
+        let udir = unix::Dir::open(dir)?;
+        let mut cursor = linux::DirEntryCursor::new();
+        loop {
+            match linux::getdents(udir.as_raw_fd(), &mut cursor) {
+                Ok(true) => {
+                    while let Some(dent) = cursor.read() {
+                        res.count += 1;
+                        if let Some(ref mut size) = res.size {
+                            let md =
+                                dir.join(dent.file_name_os()).metadata()?;
+                            *size = md.len();
+                        }
+                    }
+                }
+                Ok(false) => break,
+                Err(err) => {
+                    if !args.ignore_errors {
+                        writeln!(stderr, "ERROR: {}", err)?;
+                    }
+                }
+            }
+        }
+        Ok(res)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn count_linux<W: io::Write>(
+        _args: &Args,
+        _stderr: W,
+        _dir: &Path,
+    ) -> Result<CountResult> {
+        err!("cannot use --flat-linux on non-Linux platform")
+    }
+
+    let mut res = args.empty_count_result();
+    for dir in &args.dirs {
+        if args.flat_std {
+            res = res.add(count_std(args, &mut stderr, &dir)?);
+        } else if args.flat_windows {
+            res = res.add(count_windows(args, &mut stderr, &dir)?);
+        } else if args.flat_unix {
+            res = res.add(count_unix(args, &mut stderr, &dir)?);
+        } else if args.flat_linux {
+            res = res.add(count_linux(args, &mut stderr, &dir)?);
+        } else {
+            res = res.add(count_walkdir(args, &mut stderr, &dir)?);
+        }
+    }
+    match res.size {
+        Some(size) => {
+            writeln!(stdout, "{} (file size: {})", res.count, size)?;
+        }
+        None => {
+            writeln!(stdout, "{}", res.count)?;
+        }
+    }
     Ok(())
 }
 
@@ -89,65 +270,211 @@ where
     W1: io::Write,
     W2: io::Write,
 {
-    for dir in &args.dirs {
-        if args.tree {
-            print_paths_tree(&args, &mut stdout, &mut stderr, dir)?;
-        } else {
-            print_paths_flat(&args, &mut stdout, &mut stderr, dir)?;
+    fn print_walkdir<W1, W2>(
+        args: &Args,
+        mut stdout: W1,
+        mut stderr: W2,
+        dir: &Path,
+    ) -> Result<()>
+    where
+        W1: io::Write,
+        W2: io::Write,
+    {
+        for result in args.walkdir(dir) {
+            let dent = match result {
+                Ok(dent) => dent,
+                Err(err) => {
+                    if !args.ignore_errors {
+                        writeln!(stderr, "ERROR: {}", err)?;
+                    }
+                    continue;
+                }
+            };
+            write_path(&mut stdout, dent.path())?;
+            stdout.write_all(b"\n")?;
         }
+        Ok(())
     }
-    Ok(())
-}
 
-fn print_paths_flat<W1, W2>(
-    args: &Args,
-    mut stdout: W1,
-    mut stderr: W2,
-    dir: &Path,
-) -> Result<()>
-where
-    W1: io::Write,
-    W2: io::Write,
-{
-    for result in args.walkdir(dir) {
-        let dent = match result {
-            Ok(dent) => dent,
-            Err(err) => {
-                if !args.ignore_errors {
-                    writeln!(stderr, "ERROR: {}", err)?;
+    fn print_std<W1, W2>(
+        args: &Args,
+        mut stdout: W1,
+        mut stderr: W2,
+        dir: &Path,
+    ) -> Result<()>
+    where
+        W1: io::Write,
+        W2: io::Write,
+    {
+        for result in fs::read_dir(dir)? {
+            let dent = match result {
+                Ok(dent) => dent,
+                Err(err) => {
+                    if !args.ignore_errors {
+                        writeln!(stderr, "ERROR: {}", err)?;
+                    }
+                    continue;
                 }
-                continue;
-            }
-        };
-        write_path(&mut stdout, dent.path())?;
-        stdout.write_all(b"\n")?;
+            };
+            write_os_str(&mut stdout, &dent.file_name())?;
+            stdout.write_all(b"\n")?;
+        }
+        Ok(())
     }
-    Ok(())
-}
 
-fn print_paths_tree<W1, W2>(
-    args: &Args,
-    mut stdout: W1,
-    mut stderr: W2,
-    dir: &Path,
-) -> Result<()>
-where
-    W1: io::Write,
-    W2: io::Write,
-{
-    for result in args.walkdir(dir) {
-        let dent = match result {
-            Ok(dent) => dent,
-            Err(err) => {
-                if !args.ignore_errors {
-                    writeln!(stderr, "ERROR: {}", err)?;
+    #[cfg(windows)]
+    fn print_windows<W1, W2>(
+        args: &Args,
+        mut stdout: W1,
+        mut stderr: W2,
+        dir: &Path,
+    ) -> Result<()>
+    where
+        W1: io::Write,
+        W2: io::Write,
+    {
+        use walkdir::os::windows;
+
+        let mut handle = windows::FindHandle::open(dir)?;
+        let mut dent = windows::DirEntry::empty();
+        loop {
+            match handle.read_into(&mut dent) {
+                Ok(true) => {
+                    write_os_str(&mut stdout, dent.file_name_os())?;
+                    stdout.write_all(b"\n")?;
                 }
-                continue;
+                Ok(false) => break,
+                Err(err) => {
+                    if !args.ignore_errors {
+                        writeln!(stderr, "ERROR: {}", err)?;
+                    }
+                }
             }
-        };
-        stdout.write_all("  ".repeat(dent.depth()).as_bytes())?;
-        write_os_str(&mut stdout, dent.file_name())?;
-        stdout.write_all(b"\n")?;
+        }
+        Ok(())
+    }
+
+    #[cfg(not(windows))]
+    fn print_windows<W1, W2>(
+        _args: &Args,
+        _stdout: W1,
+        _stderr: W2,
+        _dir: &Path,
+    ) -> Result<u64>
+    where
+        W1: io::Write,
+        W2: io::Write,
+    {
+        err!("cannot use --flat-windows on non-Windows platform")
+    }
+
+    #[cfg(unix)]
+    fn print_unix<W1, W2>(
+        args: &Args,
+        mut stdout: W1,
+        mut stderr: W2,
+        dir: &Path,
+    ) -> Result<()>
+    where
+        W1: io::Write,
+        W2: io::Write,
+    {
+        use walkdir::os::unix;
+
+        let mut dir = unix::Dir::open(dir)?;
+        let mut dent = unix::DirEntry::empty();
+        loop {
+            match dir.read_into(&mut dent) {
+                Ok(true) => {
+                    write_os_str(&mut stdout, dent.file_name_os())?;
+                    stdout.write_all(b"\n")?;
+                }
+                Ok(false) => break,
+                Err(err) => {
+                    if !args.ignore_errors {
+                        writeln!(stderr, "ERROR: {}", err)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(not(unix))]
+    fn print_unix<W1, W2>(
+        _args: &Args,
+        _stdout: W1,
+        _stderr: W2,
+        _dir: &Path,
+    ) -> Result<()>
+    where
+        W1: io::Write,
+        W2: io::Write,
+    {
+        err!("cannot use --flat-unix on non-Unix platform")
+    }
+
+    #[cfg(target_os = "linux")]
+    fn print_linux<W1, W2>(
+        args: &Args,
+        mut stdout: W1,
+        mut stderr: W2,
+        dir: &Path,
+    ) -> Result<()>
+    where
+        W1: io::Write,
+        W2: io::Write,
+    {
+        use std::os::unix::io::AsRawFd;
+        use walkdir::os::{linux, unix};
+
+        let dir = unix::Dir::open(dir)?;
+        let mut cursor = linux::DirEntryCursor::new();
+        loop {
+            match linux::getdents(dir.as_raw_fd(), &mut cursor) {
+                Ok(true) => {
+                    while let Some(dent) = cursor.read() {
+                        write_os_str(&mut stdout, dent.file_name_os())?;
+                        stdout.write_all(b"\n")?;
+                    }
+                }
+                Ok(false) => break,
+                Err(err) => {
+                    if !args.ignore_errors {
+                        writeln!(stderr, "ERROR: {}", err)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn print_linux<W1, W2>(
+        _args: &Args,
+        _stdout: W1,
+        _stderr: W2,
+        _dir: &Path,
+    ) -> Result<()>
+    where
+        W1: io::Write,
+        W2: io::Write,
+    {
+        err!("cannot use --flat-linux on non-Linux platform")
+    }
+
+    for dir in &args.dirs {
+        if args.flat_std {
+            print_std(&args, &mut stdout, &mut stderr, dir)?;
+        } else if args.flat_windows {
+            print_windows(&args, &mut stdout, &mut stderr, dir)?;
+        } else if args.flat_unix {
+            print_unix(&args, &mut stdout, &mut stderr, dir)?;
+        } else if args.flat_linux {
+            print_linux(&args, &mut stdout, &mut stderr, dir)?;
+        } else {
+            print_walkdir(&args, &mut stdout, &mut stderr, dir)?;
+        }
     }
     Ok(())
 }
@@ -159,20 +486,24 @@ struct Args {
     min_depth: Option<usize>,
     max_depth: Option<usize>,
     max_open: Option<usize>,
-    tree: bool,
     ignore_errors: bool,
     sort: bool,
     depth_first: bool,
     same_file_system: bool,
     timeit: bool,
     count: bool,
+    file_size: bool,
+    flat_std: bool,
+    flat_windows: bool,
+    flat_unix: bool,
+    flat_linux: bool,
 }
 
 impl Args {
     fn parse() -> Result<Args> {
         use clap::{crate_authors, crate_version, App, Arg};
 
-        let parsed = App::new("List files using walkdir")
+        let mut app = App::new("List files using walkdir")
             .author(crate_authors!())
             .version(crate_version!())
             .max_term_width(100)
@@ -214,11 +545,6 @@ impl Args {
                     .help("Don't print error messages."),
             )
             .arg(
-                Arg::with_name("sort")
-                    .long("sort")
-                    .help("Sort file paths lexicographically."),
-            )
-            .arg(
                 Arg::with_name("depth-first").long("depth-first").help(
                     "Show directory contents before the directory path.",
                 ),
@@ -243,7 +569,59 @@ impl Args {
                     .short("c")
                     .help("Print only a total count of all file paths."),
             )
-            .get_matches();
+            .arg(Arg::with_name("file-size").long("file-size").help(
+                "Print the total file size of all files. This \
+                 implies --count.",
+            ))
+            .arg(
+                Arg::with_name("flat-std")
+                    .long("flat-std")
+                    .conflicts_with("flat-unix")
+                    .conflicts_with("flat-linux")
+                    .conflicts_with("flat-windows")
+                    .help(
+                        "Use std::fs::read_dir to list contents of a single \
+                         directory. This is NOT recursive.",
+                    ),
+            );
+        if cfg!(unix) {
+            app = app.arg(
+                Arg::with_name("flat-unix")
+                    .long("flat-unix")
+                    .conflicts_with("flat-std")
+                    .conflicts_with("flat-linux")
+                    .conflicts_with("flat-windows")
+                    .help(
+                        "Use Unix-specific APIs to list contents of a single \
+                         directory. This is NOT recursive.",
+                    ),
+            );
+        }
+        if cfg!(target_os = "linux") {
+            app = app.arg(
+                Arg::with_name("flat-linux")
+                    .long("flat-linux")
+                    .conflicts_with("flat-std")
+                    .conflicts_with("flat-unix")
+                    .conflicts_with("flat-windows")
+                    .help(
+                        "Use Linux-specific syscalls (getdents64) to list \
+                         contents of a single directory. This is NOT \
+                         recursive.",
+                    ),
+            );
+        }
+        if cfg!(windows) {
+            app = app
+                .arg(Arg::with_name("flat-windows")
+                .long("flat-windows")
+                .conflicts_with("flat-std")
+                .conflicts_with("flat-unix")
+                .conflicts_with("flat-linux")
+                .help("Use Windows-specific APIs to list contents of a single \
+                       directory. This is NOT recursive."));
+        }
+        let parsed = app.get_matches();
 
         let dirs = match parsed.values_of_os("dirs") {
             None => vec![PathBuf::from("./")],
@@ -255,13 +633,17 @@ impl Args {
             min_depth: parse_usize(&parsed, "min-depth")?,
             max_depth: parse_usize(&parsed, "max-depth")?,
             max_open: parse_usize(&parsed, "max-open")?,
-            tree: parsed.is_present("tree"),
             ignore_errors: parsed.is_present("ignore-errors"),
             sort: parsed.is_present("sort"),
             depth_first: parsed.is_present("depth-first"),
             same_file_system: parsed.is_present("same-file-system"),
             timeit: parsed.is_present("timeit"),
             count: parsed.is_present("count"),
+            file_size: parsed.is_present("file-size"),
+            flat_std: parsed.is_present("flat-std"),
+            flat_windows: parsed.is_present("flat-windows"),
+            flat_unix: parsed.is_present("flat-unix"),
+            flat_linux: parsed.is_present("flat-linux"),
         })
     }
 
@@ -283,6 +665,28 @@ impl Args {
             walkdir = walkdir.sort_by(|a, b| a.file_name().cmp(b.file_name()));
         }
         walkdir
+    }
+
+    fn empty_count_result(&self) -> CountResult {
+        CountResult {
+            count: 0,
+            size: if self.file_size { Some(0) } else { None },
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct CountResult {
+    count: u64,
+    size: Option<u64>,
+}
+
+impl CountResult {
+    fn add(self, other: CountResult) -> CountResult {
+        CountResult {
+            count: self.count + other.count,
+            size: self.size.and_then(|s1| other.size.map(|s2| s1 + s2)),
+        }
     }
 }
 

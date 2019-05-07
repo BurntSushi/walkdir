@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use crate::tests::util::Dir;
+use crate::tests::util::{self, Dir};
 use crate::WalkDir;
 
 #[test]
@@ -323,6 +323,8 @@ fn siblings() {
 
 #[test]
 fn sym_root_file_nofollow() {
+    skip_if_no_symlinks!();
+
     let dir = Dir::tmp();
     dir.touch("a");
     dir.symlink_file("a", "a-link");
@@ -354,6 +356,8 @@ fn sym_root_file_nofollow() {
 
 #[test]
 fn sym_root_file_follow() {
+    skip_if_no_symlinks!();
+
     let dir = Dir::tmp();
     dir.touch("a");
     dir.symlink_file("a", "a-link");
@@ -384,6 +388,8 @@ fn sym_root_file_follow() {
 
 #[test]
 fn sym_root_dir_nofollow() {
+    skip_if_no_symlinks!();
+
     let dir = Dir::tmp();
     dir.mkdirp("a");
     dir.symlink_dir("a", "a-link");
@@ -420,6 +426,8 @@ fn sym_root_dir_nofollow() {
 
 #[test]
 fn sym_root_dir_follow() {
+    skip_if_no_symlinks!();
+
     let dir = Dir::tmp();
     dir.mkdirp("a");
     dir.symlink_dir("a", "a-link");
@@ -456,6 +464,8 @@ fn sym_root_dir_follow() {
 
 #[test]
 fn sym_file_nofollow() {
+    skip_if_no_symlinks!();
+
     let dir = Dir::tmp();
     dir.touch("a");
     dir.symlink_file("a", "a-link");
@@ -492,6 +502,8 @@ fn sym_file_nofollow() {
 
 #[test]
 fn sym_file_follow() {
+    skip_if_no_symlinks!();
+
     let dir = Dir::tmp();
     dir.touch("a");
     dir.symlink_file("a", "a-link");
@@ -528,6 +540,8 @@ fn sym_file_follow() {
 
 #[test]
 fn sym_dir_nofollow() {
+    skip_if_no_symlinks!();
+
     let dir = Dir::tmp();
     dir.mkdirp("a");
     dir.symlink_dir("a", "a-link");
@@ -565,6 +579,8 @@ fn sym_dir_nofollow() {
 
 #[test]
 fn sym_dir_follow() {
+    skip_if_no_symlinks!();
+
     let dir = Dir::tmp();
     dir.mkdirp("a");
     dir.symlink_dir("a", "a-link");
@@ -608,6 +624,8 @@ fn sym_dir_follow() {
 
 #[test]
 fn sym_noloop() {
+    skip_if_no_symlinks!();
+
     let dir = Dir::tmp();
     dir.mkdirp("a/b/c");
     dir.symlink_dir("a", "a/b/c/a-link");
@@ -622,6 +640,8 @@ fn sym_noloop() {
 
 #[test]
 fn sym_loop_detect() {
+    skip_if_no_symlinks!();
+
     let dir = Dir::tmp();
     dir.mkdirp("a/b/c");
     dir.symlink_dir("a", "a/b/c/a-link");
@@ -647,6 +667,8 @@ fn sym_loop_detect() {
 
 #[test]
 fn sym_self_loop_no_error() {
+    skip_if_no_symlinks!();
+
     let dir = Dir::tmp();
     dir.symlink_file("a", "a");
 
@@ -672,6 +694,8 @@ fn sym_self_loop_no_error() {
 
 #[test]
 fn sym_file_self_loop_io_error() {
+    skip_if_no_symlinks!();
+
     let dir = Dir::tmp();
     dir.symlink_file("a", "a");
 
@@ -693,6 +717,8 @@ fn sym_file_self_loop_io_error() {
 
 #[test]
 fn sym_dir_self_loop_io_error() {
+    skip_if_no_symlinks!();
+
     let dir = Dir::tmp();
     dir.symlink_dir("a", "a");
 

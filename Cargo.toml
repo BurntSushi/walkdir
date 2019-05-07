@@ -23,12 +23,21 @@ members = ["walkdir-list"]
 [dependencies]
 same-file = "1.0.1"
 
+[target.'cfg(unix)'.dependencies.libc]
+version = "0.2.54"
+
+[target.'cfg(target_os = "dragonfly")'.build-dependencies]
+cc = "1.0.36"
+
 [target.'cfg(windows)'.dependencies.winapi]
 version = "0.3"
-features = ["std", "winnt"]
+features = ["std", "impl-debug", "fileapi", "handleapi", "winnt"]
 
 [target.'cfg(windows)'.dependencies.winapi-util]
 version = "0.1.1"
 
 [dev-dependencies]
 doc-comment = "0.3"
+
+[profile.release]
+debug = true
