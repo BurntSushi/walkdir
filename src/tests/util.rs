@@ -224,10 +224,12 @@ impl TempDir {
     /// Create a new empty temporary directory under the system's configured
     /// temporary directory.
     pub fn new() -> Result<TempDir> {
-        use std::sync::atomic::{AtomicUsize, Ordering};
+        #[allow(deprecated)]
+        use std::sync::atomic::{ATOMIC_USIZE_INIT, AtomicUsize, Ordering};
 
         static TRIES: usize = 100;
-        static COUNTER: AtomicUsize = AtomicUsize::new(0);
+        #[allow(deprecated)]
+        static COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;
 
         let tmpdir = env::temp_dir();
         for _ in 0..TRIES {
