@@ -104,6 +104,7 @@ for entry in walker.filter_entry(|e| !is_hidden(e)) {
 */
 
 #![deny(missing_docs)]
+#![allow(unknown_lints)]
 #![allow(bare_trait_objects)]
 
 #[cfg(test)]
@@ -119,24 +120,25 @@ extern crate winapi_util;
 doctest!("../README.md");
 
 use std::cmp::{Ordering, min};
-use std::error;
 use std::fmt;
-use std::fs::{self, FileType, ReadDir};
+use std::fs::{self, ReadDir};
 use std::io;
-use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::result;
 use std::vec;
 
 use same_file::Handle;
 
+pub use dent::DirEntry;
 #[cfg(unix)]
-pub use unix::DirEntryExt;
+pub use dent::DirEntryExt;
+pub use error::Error;
 
+mod dent;
+mod error;
 #[cfg(test)]
 mod tests;
-#[cfg(unix)]
-mod unix;
+mod util;
 
 /// Like try, but for iterators that return [`Option<Result<_, _>>`].
 ///
@@ -619,58 +621,6 @@ enum DirList {
     Closed(vec::IntoIter<Result<DirEntry>>),
 }
 
-/// A directory entry.
-///
-/// This is the type of value that is yielded from the iterators defined in
-/// this crate.
-///
-/// On Unix systems, this type implements the [`DirEntryExt`] trait, which
-/// provides efficient access to the inode number of the directory entry.
-///
-/// # Differences with `std::fs::DirEntry`
-///
-/// This type mostly mirrors the type by the same name in [`std::fs`]. There
-/// are some differences however:
-///
-/// * All recursive directory iterators must inspect the entry's type.
-/// Therefore, the value is stored and its access is guaranteed to be cheap and
-/// successful.
-/// * [`path`] and [`file_name`] return borrowed variants.
-/// * If [`follow_links`] was enabled on the originating iterator, then all
-/// operations except for [`path`] operate on the link target. Otherwise, all
-/// operations operate on the symbolic link.
-///
-/// [`std::fs`]: https://doc.rust-lang.org/stable/std/fs/index.html
-/// [`path`]: #method.path
-/// [`file_name`]: #method.file_name
-/// [`follow_links`]: struct.WalkDir.html#method.follow_links
-/// [`DirEntryExt`]: trait.DirEntryExt.html
-pub struct DirEntry {
-    /// The path as reported by the [`fs::ReadDir`] iterator (even if it's a
-    /// symbolic link).
-    ///
-    /// [`fs::ReadDir`]: https://doc.rust-lang.org/stable/std/fs/struct.ReadDir.html
-    path: PathBuf,
-    /// The file type. Necessary for recursive iteration, so store it.
-    ty: FileType,
-    /// Is set when this entry was created from a symbolic link and the user
-    /// expects the iterator to follow symbolic links.
-    follow_link: bool,
-    /// The depth at which this entry was generated relative to the root.
-    depth: usize,
-    /// The underlying inode number (Unix only).
-    #[cfg(unix)]
-    ino: u64,
-    /// The underlying metadata (Windows only). We store this on Windows
-    /// because this comes for free while reading a directory.
-    ///
-    /// We use this to determine whether an entry is a directory or not, which
-    /// works around a bug in Rust's standard library:
-    /// https://github.com/rust-lang/rust/issues/46484
-    #[cfg(windows)]
-    metadata: fs::Metadata,
-}
-
 impl Iterator for IntoIter {
     type Item = Result<DirEntry>;
     /// Advances the iterator and returns the next value.
@@ -682,7 +632,7 @@ impl Iterator for IntoIter {
     fn next(&mut self) -> Option<Result<DirEntry>> {
         if let Some(start) = self.start.take() {
             if self.opts.same_file_system {
-                let result = device_num(&start)
+                let result = util::device_num(&start)
                     .map_err(|e| Error::from_path(0, start.clone(), e));
                 self.root_device = Some(itry!(result));
             }
@@ -842,7 +792,7 @@ impl IntoIter {
         }
         let is_normal_dir = !dent.file_type().is_symlink() && dent.is_dir();
         if is_normal_dir {
-            if self.opts.same_file_system && dent.depth > 0 {
+            if self.opts.same_file_system && dent.depth() > 0 {
                 if itry!(self.is_same_file_system(&dent)) {
                     itry!(self.push(&dent));
                 }
@@ -968,20 +918,16 @@ impl IntoIter {
                 Error::from_io(self.depth, err)
             })?;
             if is_same {
-                return Err(Error {
-                    depth: self.depth,
-                    inner: ErrorInner::Loop {
-                        ancestor: ancestor.path.to_path_buf(),
-                        child: child.as_ref().to_path_buf(),
-                    },
-                });
+                return Err(Error::from_loop(
+                    self.depth, &ancestor.path, child.as_ref(),
+                ));
             }
         }
         Ok(())
     }
 
     fn is_same_file_system(&mut self, dent: &DirEntry) -> Result<bool> {
-        let dent_device = device_num(&dent.path)
+        let dent_device = util::device_num(dent.path())
             .map_err(|err| Error::from_entry(dent, err))?;
         Ok(self.root_device
             .map(|d| d == dent_device)
@@ -1016,291 +962,6 @@ impl Iterator for DirList {
                 }),
             }
         }
-    }
-}
-
-impl DirEntry {
-    /// The full path that this entry represents.
-    ///
-    /// The full path is created by joining the parents of this entry up to the
-    /// root initially given to [`WalkDir::new`] with the file name of this
-    /// entry.
-    ///
-    /// Note that this *always* returns the path reported by the underlying
-    /// directory entry, even when symbolic links are followed. To get the
-    /// target path, use [`path_is_symlink`] to (cheaply) check if this entry
-    /// corresponds to a symbolic link, and [`std::fs::read_link`] to resolve
-    /// the target.
-    ///
-    /// [`WalkDir::new`]: struct.WalkDir.html#method.new
-    /// [`path_is_symlink`]: struct.DirEntry.html#method.path_is_symlink
-    /// [`std::fs::read_link`]: https://doc.rust-lang.org/stable/std/fs/fn.read_link.html
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-
-    /// The full path that this entry represents.
-    ///
-    /// Analogous to [`path`], but moves ownership of the path.
-    ///
-    /// [`path`]: struct.DirEntry.html#method.path
-    pub fn into_path(self) -> PathBuf {
-        self.path
-    }
-
-    /// Returns `true` if and only if this entry was created from a symbolic
-    /// link. This is unaffected by the [`follow_links`] setting.
-    ///
-    /// When `true`, the value returned by the [`path`] method is a
-    /// symbolic link name. To get the full target path, you must call
-    /// [`std::fs::read_link(entry.path())`].
-    ///
-    /// [`path`]: struct.DirEntry.html#method.path
-    /// [`follow_links`]: struct.WalkDir.html#method.follow_links
-    /// [`std::fs::read_link(entry.path())`]: https://doc.rust-lang.org/stable/std/fs/fn.read_link.html
-    pub fn path_is_symlink(&self) -> bool {
-        self.ty.is_symlink() || self.follow_link
-    }
-
-    /// Return the metadata for the file that this entry points to.
-    ///
-    /// This will follow symbolic links if and only if the [`WalkDir`] value
-    /// has [`follow_links`] enabled.
-    ///
-    /// # Platform behavior
-    ///
-    /// This always calls [`std::fs::symlink_metadata`].
-    ///
-    /// If this entry is a symbolic link and [`follow_links`] is enabled, then
-    /// [`std::fs::metadata`] is called instead.
-    ///
-    /// # Errors
-    ///
-    /// Similar to [`std::fs::metadata`], returns errors for path values that
-    /// the program does not have permissions to access or if the path does not
-    /// exist.
-    ///
-    /// [`WalkDir`]: struct.WalkDir.html
-    /// [`follow_links`]: struct.WalkDir.html#method.follow_links
-    /// [`std::fs::metadata`]: https://doc.rust-lang.org/std/fs/fn.metadata.html
-    /// [`std::fs::symlink_metadata`]: https://doc.rust-lang.org/stable/std/fs/fn.symlink_metadata.html
-    pub fn metadata(&self) -> Result<fs::Metadata> {
-        self.metadata_internal()
-    }
-
-    #[cfg(windows)]
-    fn metadata_internal(&self) -> Result<fs::Metadata> {
-        if self.follow_link {
-            fs::metadata(&self.path)
-        } else {
-            Ok(self.metadata.clone())
-        }.map_err(|err| Error::from_entry(self, err))
-    }
-
-    #[cfg(not(windows))]
-    fn metadata_internal(&self) -> Result<fs::Metadata> {
-        if self.follow_link {
-            fs::metadata(&self.path)
-        } else {
-            fs::symlink_metadata(&self.path)
-        }.map_err(|err| Error::from_entry(self, err))
-    }
-
-    /// Return the file type for the file that this entry points to.
-    ///
-    /// If this is a symbolic link and [`follow_links`] is `true`, then this
-    /// returns the type of the target.
-    ///
-    /// This never makes any system calls.
-    ///
-    /// [`follow_links`]: struct.WalkDir.html#method.follow_links
-    pub fn file_type(&self) -> fs::FileType {
-        self.ty
-    }
-
-    /// Return the file name of this entry.
-    ///
-    /// If this entry has no file name (e.g., `/`), then the full path is
-    /// returned.
-    pub fn file_name(&self) -> &OsStr {
-        self.path.file_name().unwrap_or_else(|| self.path.as_os_str())
-    }
-
-    /// Returns the depth at which this entry was created relative to the root.
-    ///
-    /// The smallest depth is `0` and always corresponds to the path given
-    /// to the `new` function on `WalkDir`. Its direct descendents have depth
-    /// `1`, and their descendents have depth `2`, and so on.
-    pub fn depth(&self) -> usize {
-        self.depth
-    }
-
-    /// Returns true if and only if this entry points to a directory.
-    ///
-    /// This works around a bug in Rust's standard library:
-    /// https://github.com/rust-lang/rust/issues/46484
-    #[cfg(windows)]
-    fn is_dir(&self) -> bool {
-        use std::os::windows::fs::MetadataExt;
-        use winapi::um::winnt::FILE_ATTRIBUTE_DIRECTORY;
-        self.metadata.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0
-    }
-
-    /// Returns true if and only if this entry points to a directory.
-    #[cfg(not(windows))]
-    fn is_dir(&self) -> bool {
-        self.ty.is_dir()
-    }
-
-    #[cfg(windows)]
-    fn from_entry(depth: usize, ent: &fs::DirEntry) -> Result<DirEntry> {
-        let path = ent.path();
-        let ty = ent.file_type().map_err(|err| {
-            Error::from_path(depth, path.clone(), err)
-        })?;
-        let md = ent.metadata().map_err(|err| {
-            Error::from_path(depth, path.clone(), err)
-        })?;
-        Ok(DirEntry {
-            path: path,
-            ty: ty,
-            follow_link: false,
-            depth: depth,
-            metadata: md,
-        })
-    }
-
-    #[cfg(unix)]
-    fn from_entry(depth: usize, ent: &fs::DirEntry) -> Result<DirEntry> {
-        use std::os::unix::fs::DirEntryExt;
-
-        let ty = ent.file_type().map_err(|err| {
-            Error::from_path(depth, ent.path(), err)
-        })?;
-        Ok(DirEntry {
-            path: ent.path(),
-            ty: ty,
-            follow_link: false,
-            depth: depth,
-            ino: ent.ino(),
-        })
-    }
-
-    #[cfg(not(any(unix, windows)))]
-    fn from_entry(depth: usize, ent: &fs::DirEntry) -> Result<DirEntry> {
-        let ty = ent.file_type().map_err(|err| {
-            Error::from_path(depth, ent.path(), err)
-        })?;
-        Ok(DirEntry {
-            path: ent.path(),
-            ty: ty,
-            follow_link: false,
-            depth: depth,
-        })
-    }
-
-    #[cfg(windows)]
-    fn from_path(depth: usize, pb: PathBuf, follow: bool) -> Result<DirEntry> {
-        let md =
-            if follow {
-                fs::metadata(&pb).map_err(|err| {
-                    Error::from_path(depth, pb.clone(), err)
-                })?
-            } else {
-                fs::symlink_metadata(&pb).map_err(|err| {
-                    Error::from_path(depth, pb.clone(), err)
-                })?
-            };
-        Ok(DirEntry {
-            path: pb,
-            ty: md.file_type(),
-            follow_link: follow,
-            depth: depth,
-            metadata: md,
-        })
-    }
-
-    #[cfg(unix)]
-    fn from_path(depth: usize, pb: PathBuf, follow: bool) -> Result<DirEntry> {
-        use std::os::unix::fs::MetadataExt;
-
-        let md =
-            if follow {
-                fs::metadata(&pb).map_err(|err| {
-                    Error::from_path(depth, pb.clone(), err)
-                })?
-            } else {
-                fs::symlink_metadata(&pb).map_err(|err| {
-                    Error::from_path(depth, pb.clone(), err)
-                })?
-            };
-        Ok(DirEntry {
-            path: pb,
-            ty: md.file_type(),
-            follow_link: follow,
-            depth: depth,
-            ino: md.ino(),
-        })
-    }
-
-    #[cfg(not(any(unix, windows)))]
-    fn from_path(depth: usize, pb: PathBuf, follow: bool) -> Result<DirEntry> {
-        let md =
-            if follow {
-                fs::metadata(&pb).map_err(|err| {
-                    Error::from_path(depth, pb.clone(), err)
-                })?
-            } else {
-                fs::symlink_metadata(&pb).map_err(|err| {
-                    Error::from_path(depth, pb.clone(), err)
-                })?
-            };
-        Ok(DirEntry {
-            path: pb,
-            ty: md.file_type(),
-            follow_link: follow,
-            depth: depth,
-        })
-    }
-}
-
-impl Clone for DirEntry {
-    #[cfg(windows)]
-    fn clone(&self) -> DirEntry {
-        DirEntry {
-            path: self.path.clone(),
-            ty: self.ty,
-            follow_link: self.follow_link,
-            depth: self.depth,
-            metadata: self.metadata.clone(),
-        }
-    }
-
-    #[cfg(unix)]
-    fn clone(&self) -> DirEntry {
-        DirEntry {
-            path: self.path.clone(),
-            ty: self.ty,
-            follow_link: self.follow_link,
-            depth: self.depth,
-            ino: self.ino,
-        }
-    }
-
-    #[cfg(not(any(unix, windows)))]
-    fn clone(&self) -> DirEntry {
-        DirEntry {
-            path: self.path.clone(),
-            ty: self.ty,
-            follow_link: self.follow_link,
-            depth: self.depth,
-        }
-    }
-}
-
-impl fmt::Debug for DirEntry {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "DirEntry({:?})", self.path)
     }
 }
 
@@ -1456,266 +1117,4 @@ impl<P> FilterEntry<IntoIter, P> where P: FnMut(&DirEntry) -> bool {
     pub fn skip_current_dir(&mut self) {
         self.it.skip_current_dir();
     }
-}
-
-/// An error produced by recursively walking a directory.
-///
-/// This error type is a light wrapper around [`std::io::Error`]. In
-/// particular, it adds the following information:
-///
-/// * The depth at which the error occurred in the file tree, relative to the
-/// root.
-/// * The path, if any, associated with the IO error.
-/// * An indication that a loop occurred when following symbolic links. In this
-/// case, there is no underlying IO error.
-///
-/// To maintain good ergonomics, this type has a
-/// [`impl From<Error> for std::io::Error`][impl] defined which preserves the original context.
-/// This allows you to use an [`io::Result`] with methods in this crate if you don't care about
-/// accessing the underlying error data in a structured form.
-///
-/// [`std::io::Error`]: https://doc.rust-lang.org/stable/std/io/struct.Error.html
-/// [`io::Result`]: https://doc.rust-lang.org/stable/std/io/type.Result.html
-/// [impl]: struct.Error.html#impl-From%3CError%3E
-#[derive(Debug)]
-pub struct Error {
-    depth: usize,
-    inner: ErrorInner,
-}
-
-#[derive(Debug)]
-enum ErrorInner {
-    Io { path: Option<PathBuf>, err: io::Error },
-    Loop { ancestor: PathBuf, child: PathBuf },
-}
-
-impl Error {
-    /// Returns the path associated with this error if one exists.
-    ///
-    /// For example, if an error occurred while opening a directory handle,
-    /// the error will include the path passed to [`std::fs::read_dir`].
-    ///
-    /// [`std::fs::read_dir`]: https://doc.rust-lang.org/stable/std/fs/fn.read_dir.html
-    pub fn path(&self) -> Option<&Path> {
-        match self.inner {
-            ErrorInner::Io { path: None, .. } => None,
-            ErrorInner::Io { path: Some(ref path), .. } => Some(path),
-            ErrorInner::Loop { ref child, .. } => Some(child),
-        }
-    }
-
-    /// Returns the path at which a cycle was detected.
-    ///
-    /// If no cycle was detected, [`None`] is returned.
-    ///
-    /// A cycle is detected when a directory entry is equivalent to one of
-    /// its ancestors.
-    ///
-    /// To get the path to the child directory entry in the cycle, use the
-    /// [`path`] method.
-    ///
-    /// [`None`]: https://doc.rust-lang.org/stable/std/option/enum.Option.html#variant.None
-    /// [`path`]: struct.Error.html#path
-    pub fn loop_ancestor(&self) -> Option<&Path> {
-        match self.inner {
-            ErrorInner::Loop { ref ancestor, .. } => Some(ancestor),
-            _ => None,
-        }
-    }
-
-    /// Returns the depth at which this error occurred relative to the root.
-    ///
-    /// The smallest depth is `0` and always corresponds to the path given to
-    /// the [`new`] function on [`WalkDir`]. Its direct descendents have depth
-    /// `1`, and their descendents have depth `2`, and so on.
-    ///
-    /// [`new`]: struct.WalkDir.html#method.new
-    /// [`WalkDir`]: struct.WalkDir.html
-    pub fn depth(&self) -> usize {
-        self.depth
-    }
-
-    /// Inspect the original [`io::Error`] if there is one.
-    ///
-    /// [`None`] is returned if the [`Error`] doesn't correspond to an
-    /// [`io::Error`]. This might happen, for example, when the error was
-    /// produced because a cycle was found in the directory tree while
-    /// following symbolic links.
-    ///
-    /// This method returns a borrowed value that is bound to the lifetime of the [`Error`]. To
-    /// obtain an owned value, the [`into_io_error`] can be used instead.
-    ///
-    /// > This is the original [`io::Error`] and is _not_ the same as
-    /// > [`impl From<Error> for std::io::Error`][impl] which contains additional context about the
-    /// error.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no-run
-    /// use std::io;
-    /// use std::path::Path;
-    ///
-    /// use walkdir::WalkDir;
-    ///
-    /// for entry in WalkDir::new("foo") {
-    ///     match entry {
-    ///         Ok(entry) => println!("{}", entry.path().display()),
-    ///         Err(err) => {
-    ///             let path = err.path().unwrap_or(Path::new("")).display();
-    ///             println!("failed to access entry {}", path);
-    ///             if let Some(inner) = err.io_error() {
-    ///                 match inner.kind() {
-    ///                     io::ErrorKind::InvalidData => {
-    ///                         println!(
-    ///                             "entry contains invalid data: {}",
-    ///                             inner)
-    ///                     }
-    ///                     io::ErrorKind::PermissionDenied => {
-    ///                         println!(
-    ///                             "Missing permission to read entry: {}",
-    ///                             inner)
-    ///                     }
-    ///                     _ => {
-    ///                         println!(
-    ///                             "Unexpected error occurred: {}",
-    ///                             inner)
-    ///                     }
-    ///                 }
-    ///             }
-    ///         }
-    ///     }
-    /// }
-    /// ```
-    ///
-    /// [`None`]: https://doc.rust-lang.org/stable/std/option/enum.Option.html#variant.None
-    /// [`io::Error`]: https://doc.rust-lang.org/stable/std/io/struct.Error.html
-    /// [`From`]: https://doc.rust-lang.org/stable/std/convert/trait.From.html
-    /// [`Error`]: struct.Error.html
-    /// [`into_io_error`]: struct.Error.html#method.into_io_error
-    /// [impl]: struct.Error.html#impl-From%3CError%3E
-    pub fn io_error(&self) -> Option<&io::Error> {
-       match self.inner {
-            ErrorInner::Io { ref err, .. } => Some(err),
-            ErrorInner::Loop { .. } => None,
-       }
-    }
-
-    /// Similar to [`io_error`] except consumes self to convert to the original
-    /// [`io::Error`] if one exists.
-    ///
-    /// [`io_error`]: struct.Error.html#method.io_error
-    /// [`io::Error`]: https://doc.rust-lang.org/stable/std/io/struct.Error.html
-    pub fn into_io_error(self) -> Option<io::Error> {
-       match self.inner {
-            ErrorInner::Io { err, .. } => Some(err),
-            ErrorInner::Loop { .. } => None,
-       }
-    }
-
-    fn from_path(depth: usize, pb: PathBuf, err: io::Error) -> Self {
-        Error {
-            depth: depth,
-            inner: ErrorInner::Io { path: Some(pb), err: err },
-        }
-    }
-
-    fn from_entry(dent: &DirEntry, err: io::Error) -> Self {
-        Error {
-            depth: dent.depth,
-            inner: ErrorInner::Io {
-                path: Some(dent.path().to_path_buf()),
-                err: err,
-            },
-        }
-    }
-
-    fn from_io(depth: usize, err: io::Error) -> Self {
-        Error {
-            depth: depth,
-            inner: ErrorInner::Io { path: None, err: err },
-        }
-    }
-}
-
-impl error::Error for Error {
-    fn description(&self) -> &str {
-        match self.inner {
-            ErrorInner::Io { ref err, .. } => err.description(),
-            ErrorInner::Loop { .. } => "file system loop found",
-        }
-    }
-
-    fn cause(&self) -> Option<&error::Error> {
-        match self.inner {
-            ErrorInner::Io { ref err, .. } => Some(err),
-            ErrorInner::Loop { .. } => None,
-        }
-    }
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self.inner {
-            ErrorInner::Io { path: None, ref err } => {
-                err.fmt(f)
-            }
-            ErrorInner::Io { path: Some(ref path), ref err } => {
-                write!(f, "IO error for operation on {}: {}",
-                       path.display(), err)
-            }
-            ErrorInner::Loop { ref ancestor, ref child } => {
-                write!(f, "File system loop found: \
-                           {} points to an ancestor {}",
-                       child.display(), ancestor.display())
-            }
-        }
-    }
-}
-
-impl From<Error> for io::Error {
-    /// Convert the [`Error`] to an [`io::Error`], preserving the original
-    /// [`Error`] as the ["inner error"]. Note that this also makes the display
-    /// of the error include the context.
-    ///
-    /// This is different from [`into_io_error`] which returns the original
-    /// [`io::Error`].
-    ///
-    /// [`Error`]: struct.Error.html
-    /// [`io::Error`]: https://doc.rust-lang.org/stable/std/io/struct.Error.html
-    /// ["inner error"]: https://doc.rust-lang.org/std/io/struct.Error.html#method.into_inner
-    /// [`into_io_error`]: struct.WalkDir.html#method.into_io_error
-    fn from(walk_err: Error) -> io::Error {
-        let kind = match walk_err {
-            Error { inner: ErrorInner::Io { ref err, .. }, .. } => {
-                err.kind()
-            }
-            Error { inner: ErrorInner::Loop { .. }, .. } => {
-                io::ErrorKind::Other
-            }
-        };
-        io::Error::new(kind, walk_err)
-    }
-}
-
-#[cfg(unix)]
-fn device_num<P: AsRef<Path>>(path: P)-> std::io::Result<u64> {
-    use std::os::unix::fs::MetadataExt;
-
-    path.as_ref().metadata().map(|md| md.dev())
-}
-
- #[cfg(windows)]
-fn device_num<P: AsRef<Path>>(path: P) -> std::io::Result<u64> {
-    use winapi_util::{Handle, file};
-
-    let h = Handle::from_path_any(path)?;
-    file::information(h).map(|info| info.volume_serial_number())
-}
-
-#[cfg(not(any(unix, windows)))]
-fn device_num<P: AsRef<Path>>(_: P)-> std::io::Result<u64> {
-    Err(io::Error::new(
-        io::ErrorKind::Other,
-        "walkdir: same_file_system option not supported on this platform",
-    ))
 }
