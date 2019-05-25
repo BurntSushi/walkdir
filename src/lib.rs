@@ -110,8 +110,6 @@ for entry in walker.filter_entry(|e| !is_hidden(e)) {
 #[cfg(test)]
 doc_comment::doctest!("../README.md");
 
-pub mod os;
-
 use std::cmp::{min, Ordering};
 use std::fmt;
 use std::fs::{self, ReadDir};
@@ -129,6 +127,7 @@ pub use crate::error::Error;
 
 mod dent;
 mod error;
+pub mod os;
 #[cfg(test)]
 mod tests;
 mod util;
