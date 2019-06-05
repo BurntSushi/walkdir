@@ -36,9 +36,16 @@ use libc::readdir64 as readdir;
 #[cfg(target_os = "linux")]
 use crate::os::linux::DirEntry as LinuxDirEntry;
 use crate::os::unix::dirent::RawDirEntry;
+pub use crate::os::unix::rawpath::RawPathBuf;
+pub use crate::os::unix::stat::{
+    lstat, lstat_c, lstatat, lstatat_c, stat, stat_c, statat, statat_c,
+    FileType, Metadata,
+};
 
 mod dirent;
 pub(crate) mod errno;
+mod rawpath;
+mod stat;
 
 /// A low-level Unix specific directory entry.
 ///
@@ -250,7 +257,9 @@ impl DirFd {
     /// This is just like `DirFd::open`, except it accepts a pre-made C string.
     /// As such, this only returns an error when opening the directory fails.
     pub fn open_c(dir_path: &CStr) -> io::Result<DirFd> {
-        let flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC;
+        let flags = libc::O_RDONLY | libc::O_CLOEXEC;
+        #[cfg(not(target_os = "solaris"))]
+        let flags = flags | libc::O_DIRECTORY;
         // SAFETY: This is safe since we've guaranteed that cstr has no
         // interior NUL bytes and is terminated by a NUL.
         let fd = unsafe { libc::open(dir_path.as_ptr(), flags) };
@@ -292,7 +301,9 @@ impl DirFd {
         parent_dirfd: RawFd,
         dir_name: &CStr,
     ) -> io::Result<DirFd> {
-        let flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC;
+        let flags = libc::O_RDONLY | libc::O_CLOEXEC;
+        #[cfg(not(target_os = "solaris"))]
+        let flags = flags | libc::O_DIRECTORY;
         // SAFETY: This is safe since we've guaranteed that cstr has no
         // interior NUL bytes and is terminated by a NUL.
         let fd =
@@ -511,107 +522,6 @@ impl Dir {
         // avoid running close again.
         mem::forget(self);
         res
-    }
-}
-
-/// One of seven possible file types on Unix.
-#[derive(Clone, Copy)]
-pub struct FileType(libc::mode_t);
-
-impl fmt::Debug for FileType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let human = if self.is_file() {
-            "File"
-        } else if self.is_dir() {
-            "Directory"
-        } else if self.is_symlink() {
-            "Symbolic Link"
-        } else if self.is_block_device() {
-            "Block Device"
-        } else if self.is_char_device() {
-            "Char Device"
-        } else if self.is_fifo() {
-            "FIFO"
-        } else if self.is_socket() {
-            "Socket"
-        } else {
-            "Unknown"
-        };
-        write!(f, "FileType({})", human)
-    }
-}
-
-impl FileType {
-    /// Create a new file type from a directory entry's type field.
-    ///
-    /// If the given type is not recognized or is `DT_UNKNOWN`, then `None`
-    /// is returned.
-    pub fn from_dirent_type(d_type: u8) -> Option<FileType> {
-        Some(FileType(match d_type {
-            libc::DT_REG => libc::S_IFREG,
-            libc::DT_DIR => libc::S_IFDIR,
-            libc::DT_LNK => libc::S_IFLNK,
-            libc::DT_BLK => libc::S_IFBLK,
-            libc::DT_CHR => libc::S_IFCHR,
-            libc::DT_FIFO => libc::S_IFIFO,
-            libc::DT_SOCK => libc::S_IFSOCK,
-            libc::DT_UNKNOWN => return None,
-            _ => return None, // wat?
-        }))
-    }
-
-    /// Create a new file type from a stat's `st_mode` field.
-    pub fn from_stat_mode(st_mode: u64) -> FileType {
-        FileType(st_mode as libc::mode_t)
-    }
-
-    /// Returns true if this file type is a regular file.
-    ///
-    /// This corresponds to the `S_IFREG` value on Unix.
-    pub fn is_file(&self) -> bool {
-        self.0 & libc::S_IFMT == libc::S_IFREG
-    }
-
-    /// Returns true if this file type is a directory.
-    ///
-    /// This corresponds to the `S_IFDIR` value on Unix.
-    pub fn is_dir(&self) -> bool {
-        self.0 & libc::S_IFMT == libc::S_IFDIR
-    }
-
-    /// Returns true if this file type is a symbolic link.
-    ///
-    /// This corresponds to the `S_IFLNK` value on Unix.
-    pub fn is_symlink(&self) -> bool {
-        self.0 & libc::S_IFMT == libc::S_IFLNK
-    }
-
-    /// Returns true if this file type is a block device.
-    ///
-    /// This corresponds to the `S_IFBLK` value on Unix.
-    pub fn is_block_device(&self) -> bool {
-        self.0 & libc::S_IFMT == libc::S_IFBLK
-    }
-
-    /// Returns true if this file type is a character device.
-    ///
-    /// This corresponds to the `S_IFCHR` value on Unix.
-    pub fn is_char_device(&self) -> bool {
-        self.0 & libc::S_IFMT == libc::S_IFCHR
-    }
-
-    /// Returns true if this file type is a FIFO.
-    ///
-    /// This corresponds to the `S_IFIFO` value on Unix.
-    pub fn is_fifo(&self) -> bool {
-        self.0 & libc::S_IFMT == libc::S_IFIFO
-    }
-
-    /// Returns true if this file type is a socket.
-    ///
-    /// This corresponds to the `S_IFSOCK` value on Unix.
-    pub fn is_socket(&self) -> bool {
-        self.0 & libc::S_IFMT == libc::S_IFSOCK
     }
 }
 

@@ -31,7 +31,9 @@ cc = "1.0.36"
 
 [target.'cfg(windows)'.dependencies.winapi]
 version = "0.3"
-features = ["std", "impl-debug", "fileapi", "handleapi", "winnt"]
+features = [
+  "std", "impl-debug", "fileapi", "handleapi", "ioapiset", "winioctl", "winnt",
+]
 
 [target.'cfg(windows)'.dependencies.winapi-util]
 version = "0.1.1"

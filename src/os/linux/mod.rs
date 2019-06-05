@@ -181,6 +181,8 @@ pub struct DirEntryCursor {
     capacity: usize,
     /// The current position of this buffer as a pointer into `raw`.
     cursor: NonNull<u8>,
+    /// Whether the cursor has been advanced at least once.
+    advanced: bool,
 }
 
 impl Drop for DirEntryCursor {
@@ -236,7 +238,7 @@ impl DirEntryCursor {
             Some(raw) => raw,
             None => handle_alloc_error(lay),
         };
-        DirEntryCursor { raw, len: 0, capacity, cursor: raw }
+        DirEntryCursor { raw, len: 0, capacity, cursor: raw, advanced: false }
     }
 
     /// Read the next directory entry from this cursor. If the cursor has been
@@ -249,31 +251,72 @@ impl DirEntryCursor {
     ///
     /// Note that no filtering of entries (such as `.` and `..`) is performed.
     pub fn read<'a>(&'a mut self) -> Option<DirEntry<'a>> {
-        if self.cursor.as_ptr() >= self.raw.as_ptr().wrapping_add(self.len) {
+        if !self.advance() {
             return None;
         }
+        Some(self.current())
+    }
+
+    /// Advance this cursor to the next directory entry. If there are no more
+    /// directory entries to read, then this returns false.
+    ///
+    /// Calling `current()` after `advance` is guaranteed to panic when this
+    /// returns false. Conversely, calling `current()` after `advance` is
+    /// guaranteed not to panic when this returns true.
+    pub fn advance(&mut self) -> bool {
+        if self.is_done() {
+            return false;
+        }
+        if !self.advanced {
+            self.advanced = true;
+            return true;
+        }
+        // SAFETY: This is safe by the assumption that `d_reclen` on the raw
+        // dirent is correct.
+        self.cursor = unsafe {
+            let raw = self.current_raw();
+            let next = self.cursor.as_ptr().add(raw.record_len());
+            NonNull::new_unchecked(next)
+        };
+        !self.is_done()
+    }
+
+    /// Return the current directory entry in this cursor.
+    ///
+    /// This panics is the cursor has been exhausted, or if the cursor has not
+    /// yet had `advance` called.
+    ///
+    /// Calling `current()` after `advance` is guaranteed to panic when this
+    /// returns false. Conversely, calling `current()` after `advance` is
+    /// guaranteed not to panic when this returns true.
+    pub fn current<'a>(&'a self) -> DirEntry<'a> {
+        let raw = self.current_raw();
+        DirEntry {
+            // SAFETY: This is safe since we are asking for the file name on a
+            // `RawDirEntry` that resides in its original buffer.
+            file_name: unsafe { raw.file_name() },
+            file_type: raw.file_type(),
+            ino: raw.ino(),
+        }
+    }
+
+    fn current_raw(&self) -> &RawDirEntry {
+        assert!(self.advanced);
+        assert!(!self.is_done());
         // SAFETY: This is safe by the contract of getdents64. Namely, that it
         // writes structures of type `RawDirEntry` to `raw`. The lifetime of
         // this raw dirent is also tied to this buffer via the type signature
         // of this method, which prevents use-after-free. Moreover, our
         // allocation layout guarantees that the cursor is correctly aligned
-        // for RawDirEntry.
-        let raw_dirent =
-            unsafe { &*(self.cursor.as_ptr() as *const RawDirEntry) };
-        let ent = DirEntry {
-            // SAFETY: This is safe since we are asking for the file name on a
-            // `RawDirEntry` that resides in its original buffer.
-            file_name: unsafe { raw_dirent.file_name() },
-            file_type: raw_dirent.file_type(),
-            ino: raw_dirent.ino(),
-        };
-        // SAFETY: This is safe by the assumption that `d_reclen` on the raw
-        // dirent is correct.
-        self.cursor = unsafe {
-            let next = self.cursor.as_ptr().add(raw_dirent.record_len());
-            NonNull::new_unchecked(next)
-        };
-        Some(ent)
+        // for RawDirEntry. Finally, we assert that self.cursor has not
+        // reached the end yet, and since the cursor is only ever incremented
+        // by correct amounts, we know it points to the beginning of a valid
+        // directory entry.
+        unsafe { &*(self.cursor.as_ptr() as *const RawDirEntry) }
+    }
+
+    fn is_done(&self) -> bool {
+        self.cursor.as_ptr() >= self.raw.as_ptr().wrapping_add(self.len)
     }
 
     /// Read the next directory entry from this cursor as an owned Unix
@@ -311,5 +354,6 @@ impl DirEntryCursor {
     fn clear(&mut self) {
         self.cursor = self.raw;
         self.len = 0;
+        self.advanced = false;
     }
 }

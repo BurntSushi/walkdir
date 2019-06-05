@@ -2,8 +2,22 @@ use std::error;
 use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::result;
 
 use crate::DirEntry;
+
+/// A result type for walkdir operations.
+///
+/// Note that this result type embeds the error type in this crate. This
+/// is only useful if you care about the additional information provided by
+/// the error (such as the path associated with the error or whether a loop
+/// was dectected). If you want things to Just Work, then you can use
+/// [`io::Result`] instead since the error type in this package will
+/// automatically convert to an [`io::Result`] when using the [`try!`] macro.
+///
+/// [`io::Result`]: https://doc.rust-lang.org/stable/std/io/type.Result.html
+/// [`try!`]: https://doc.rust-lang.org/stable/std/macro.try.html
+pub type Result<T> = result::Result<T, Error>;
 
 /// An error produced by recursively walking a directory.
 ///
@@ -98,7 +112,7 @@ impl Error {
     ///
     /// # Example
     ///
-    /// ```rust,no-run
+    /// ```rust,no_run
     /// use std::io;
     /// use std::path::Path;
     ///

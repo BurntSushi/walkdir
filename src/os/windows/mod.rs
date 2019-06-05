@@ -10,6 +10,7 @@ use std::io;
 use std::mem;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::Path;
+use std::time::{self, SystemTime};
 
 use winapi::shared::minwindef::{DWORD, FILETIME};
 use winapi::shared::winerror::ERROR_NO_MORE_FILES;
@@ -18,6 +19,11 @@ use winapi::um::fileapi::{FindClose, FindFirstFileW, FindNextFileW};
 use winapi::um::handleapi::INVALID_HANDLE_VALUE;
 use winapi::um::minwinbase::WIN32_FIND_DATAW;
 use winapi::um::winnt::HANDLE;
+
+pub use crate::os::windows::stat::FileType;
+
+mod rawpath;
+mod stat;
 
 /// A low-level Windows specific directory entry.
 ///
@@ -93,53 +99,67 @@ impl DirEntry {
         self.attr
     }
 
-    /// Return a 64-bit representation of the creation time of the underlying
-    /// file.
-    ///
-    /// The 64-bit value returned is equivalent to winapi's `FILETIME`
-    /// structure, which represents the number of 100-nanosecond intervals
-    /// since January 1, 1601 (UTC).
-    ///
-    /// If the underlying file system does not support creation time, then
-    /// `0` is returned.
+    /// Returns true if this file is marked as hidden via the
+    /// `FILE_ATTRIBUTE_HIDDEN` marker.
     #[inline]
-    pub fn creation_time(&self) -> u64 {
-        self.creation_time
+    pub fn is_hidden(&self) -> bool {
+        use winapi::um::winnt::FILE_ATTRIBUTE_HIDDEN;
+        self.file_attributes() & FILE_ATTRIBUTE_HIDDEN != 0
     }
 
-    /// Return a 64-bit representation of the last access time of the
-    /// underlying file.
+    /// Return the creation time of the underlying file as a system time.
     ///
-    /// The 64-bit value returned is equivalent to winapi's `FILETIME`
-    /// structure, which represents the number of 100-nanosecond intervals
-    /// since January 1, 1601 (UTC).
-    ///
-    /// If the underlying file system does not support last access time, then
-    /// `0` is returned.
+    /// If the underlying file system does not support creation time, then an
+    /// error is returned.
     #[inline]
-    pub fn last_access_time(&self) -> u64 {
-        self.last_access_time
+    pub fn created(&self) -> io::Result<SystemTime> {
+        if self.creation_time == 0 {
+            Err(io::Error::new(
+                io::ErrorKind::Other,
+                "creation time is not available on this platform currently",
+            ))
+        } else {
+            Ok(intervals_to_system_time(self.creation_time))
+        }
     }
 
-    /// Return a 64-bit representation of the last write time of the
-    /// underlying file.
+    /// Return last access time of the underlying file as a system time.
     ///
-    /// The 64-bit value returned is equivalent to winapi's `FILETIME`
-    /// structure, which represents the number of 100-nanosecond intervals
-    /// since January 1, 1601 (UTC).
-    ///
-    /// If the underlying file system does not support last write time, then
-    /// `0` is returned.
+    /// If the underlying file system does not support creation time, then an
+    /// error is returned.
     #[inline]
-    pub fn last_write_time(&self) -> u64 {
-        self.last_write_time
+    pub fn accessed(&self) -> io::Result<SystemTime> {
+        if self.last_access_time == 0 {
+            Err(io::Error::new(
+                io::ErrorKind::Other,
+                "last access time is not available on this platform currently",
+            ))
+        } else {
+            Ok(intervals_to_system_time(self.last_access_time))
+        }
+    }
+
+    /// Return the last modified time of the underlying file as a system time.
+    ///
+    /// If the underlying file system does not support creation time, then an
+    /// error is returned.
+    #[inline]
+    pub fn modified(&self) -> io::Result<SystemTime> {
+        if self.last_write_time == 0 {
+            Err(io::Error::new(
+                io::ErrorKind::Other,
+                "last write time is not available on this platform currently",
+            ))
+        } else {
+            Ok(intervals_to_system_time(self.last_write_time))
+        }
     }
 
     /// Return the file size, in bytes, of the corresponding file.
     ///
     /// This value has no meaning if this entry corresponds to a directory.
     #[inline]
-    pub fn file_size(&self) -> u64 {
+    pub fn len(&self) -> u64 {
         self.file_size
     }
 
@@ -177,107 +197,6 @@ impl DirEntry {
     #[inline]
     pub fn into_file_name_u16(self) -> Vec<u16> {
         self.file_name_u16
-    }
-}
-
-/// File type information discoverable from the `FindNextFile` winapi routines.
-///
-/// Note that this does not include all possible file types on Windows.
-/// Instead, this only differentiates between directories, regular files and
-/// symlinks. Additional file type information (such as whether a file handle
-/// is a socket) can only be retrieved via the `GetFileType` winapi routines.
-/// A safe wrapper for it is
-/// [available in the `winapi-util` crate](https://docs.rs/winapi-util/*/x86_64-pc-windows-msvc/winapi_util/file/fn.typ.html).
-#[derive(Clone, Copy)]
-pub struct FileType {
-    attr: DWORD,
-    reparse_tag: DWORD,
-}
-
-impl fmt::Debug for FileType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let human = if self.is_file() {
-            "File"
-        } else if self.is_dir() {
-            "Directory"
-        } else if self.is_symlink_file() {
-            "Symbolic Link (File)"
-        } else if self.is_symlink_dir() {
-            "Symbolic Link (Directory)"
-        } else {
-            "Unknown"
-        };
-        write!(f, "FileType({})", human)
-    }
-}
-
-impl FileType {
-    /// Create a file type from its raw winapi components.
-    ///
-    /// `attr`  should be a file attribute bitset, corresponding to the
-    /// `dwFileAttributes` member of file information structs.
-    ///
-    /// `reparse_tag` should be a valid reparse tag value when the
-    /// `FILE_ATTRIBUTE_REPARSE_POINT` bit is set in `attr`. If the bit isn't
-    /// set or if the tag is not available, then the tag can be any value.
-    pub fn from_attr(attr: u32, reparse_tag: u32) -> FileType {
-        FileType { attr: attr, reparse_tag: reparse_tag }
-    }
-
-    /// Returns true if this file type is a regular file.
-    ///
-    /// This corresponds to any file that is neither a symlink nor a directory.
-    pub fn is_file(&self) -> bool {
-        !self.is_dir() && !self.is_symlink()
-    }
-
-    /// Returns true if this file type is a directory.
-    ///
-    /// This corresponds to any file that has the `FILE_ATTRIBUTE_DIRECTORY`
-    /// attribute and is not a symlink.
-    pub fn is_dir(&self) -> bool {
-        use winapi::um::winnt::FILE_ATTRIBUTE_DIRECTORY;
-
-        self.attr & FILE_ATTRIBUTE_DIRECTORY != 0 && !self.is_symlink()
-    }
-
-    /// Returns true if this file type is a symlink. This could be a symlink
-    /// to a directory or to a file. To distinguish between them, use
-    /// `is_symlink_file` and `is_symlink_dir`.
-    ///
-    /// This corresponds to any file that has a surrogate reparse point.
-    pub fn is_symlink(&self) -> bool {
-        use winapi::um::winnt::IsReparseTagNameSurrogate;
-
-        self.reparse_tag().map_or(false, IsReparseTagNameSurrogate)
-    }
-
-    /// Returns true if this file type is a symlink to a file.
-    ///
-    /// This corresponds to any file that has a surrogate reparse point and
-    /// is not a symlink to a directory.
-    pub fn is_symlink_file(&self) -> bool {
-        !self.is_symlink_dir() && self.is_symlink()
-    }
-
-    /// Returns true if this file type is a symlink to a file.
-    ///
-    /// This corresponds to any file that has a surrogate reparse point and has
-    /// the `FILE_ATTRIBUTE_DIRECTORY` attribute.
-    pub fn is_symlink_dir(&self) -> bool {
-        use winapi::um::winnt::FILE_ATTRIBUTE_DIRECTORY;
-
-        self.attr & FILE_ATTRIBUTE_DIRECTORY != 0 && self.is_symlink()
-    }
-
-    fn reparse_tag(&self) -> Option<DWORD> {
-        use winapi::um::winnt::FILE_ATTRIBUTE_REPARSE_POINT;
-
-        if self.attr & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-            Some(self.reparse_tag)
-        } else {
-            None
-        }
     }
 }
 
@@ -498,6 +417,17 @@ fn time_as_u64(time: &FILETIME) -> u64 {
     (time.dwHighDateTime as u64) << 32 | time.dwLowDateTime as u64
 }
 
+fn intervals_to_system_time(intervals: u64) -> SystemTime {
+    const NANOS_IN_SECOND: u64 = 1_000_000_000;
+    const NANOS_PER_INTERVAL: u64 = 100;
+    const SECONDS_TO_UNIX: u64 = 11_644_473_600;
+
+    let seconds_from_unix =
+        (intervals / (NANOS_IN_SECOND / NANOS_PER_INTERVAL)) - SECONDS_TO_UNIX;
+    let dur_from_unix = time::Duration::from_secs(seconds_from_unix);
+    SystemTime::UNIX_EPOCH + dur_from_unix
+}
+
 fn to_utf16<T: AsRef<OsStr>>(t: T, buf: &mut Vec<u16>) -> io::Result<()> {
     for cu16 in t.as_ref().encode_wide() {
         if cu16 == 0 {
@@ -515,5 +445,47 @@ fn truncate_utf16(slice: &[u16]) -> &[u16] {
     match slice.iter().position(|c| *c == 0) {
         Some(i) => &slice[..i],
         None => slice,
+    }
+}
+
+pub(crate) fn escaped_u16s(slice: &[u16]) -> String {
+    use std::char;
+
+    let mut buf = String::with_capacity(slice.len());
+    for result in char::decode_utf16(slice.iter().cloned()) {
+        match result {
+            Ok(ch) => buf.push(ch),
+            Err(err) => {
+                let bad = err.unpaired_surrogate();
+                buf.push_str(&format!(r"\u{{{:X}}}", bad));
+            }
+        }
+    }
+    buf
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn escaping1() {
+        let x: Vec<u16> = "foo☃bar".encode_utf16().collect();
+        let escaped = escaped_u16s(&x);
+        assert_eq!("foo☃bar", escaped);
+    }
+
+    #[test]
+    fn escaping2() {
+        let mut x = vec![];
+        x.push(0xD800);
+        x.extend("a".encode_utf16());
+        x.push(0xDA02);
+        x.extend("b".encode_utf16());
+        x.push(0xDFFF);
+        x.extend("c".encode_utf16());
+
+        let escaped = escaped_u16s(&x);
+        assert_eq!(r"\u{D800}a\u{DA02}b\u{DFFF}c", escaped);
     }
 }
