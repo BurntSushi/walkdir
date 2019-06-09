@@ -104,6 +104,7 @@ for entry in walker.filter_entry(|e| !is_hidden(e)) {
 */
 
 #![deny(missing_docs)]
+#![allow(bare_trait_objects)]
 
 #[cfg(test)]
 extern crate quickcheck;
