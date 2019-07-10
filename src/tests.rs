@@ -471,6 +471,30 @@ fn walk_dir_7() {
     assert_tree_eq!(exp, got);
 }
 
+/// Regression test for #118. `skip_current_dir` sometimes destroyed internal
+/// invariants.
+#[test]
+fn skip_current_dir() {
+    let t = td("foo", vec![
+        td("a", vec![td("a", vec![]), tf("f")]),
+        td("b", vec![]),
+    ]);
+
+    let tmp = tmpdir();
+    t.create_in(tmp.path()).unwrap();
+
+    let mut wd = WalkDir::new(tmp.path()).max_open(1).into_iter();
+    wd.next();
+    wd.next();
+    wd.next();
+    wd.next();
+
+    wd.skip_current_dir();
+    wd.next();
+    wd.skip_current_dir();
+    wd.next();
+}
+
 #[test]
 fn walk_dir_sym_1() {
     let exp = td("foo", vec![tf("bar"), tlf("bar", "baz")]);
