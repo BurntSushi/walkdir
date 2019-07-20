@@ -990,3 +990,23 @@ fn same_file_system() {
     ];
     assert_eq!(expected, r.sorted_paths());
 }
+
+// Tests that skip_current_dir doesn't destroy internal invariants.
+//
+// See: https://github.com/BurntSushi/walkdir/issues/118
+#[test]
+fn regression_skip_current_dir() {
+    let dir = Dir::tmp();
+    dir.mkdirp("foo/a/b");
+    dir.mkdirp("foo/1/2");
+
+    let mut wd = WalkDir::new(dir.path()).max_open(1).into_iter();
+    wd.next();
+    wd.next();
+    wd.next();
+    wd.next();
+
+    wd.skip_current_dir();
+    wd.skip_current_dir();
+    wd.next();
+}
