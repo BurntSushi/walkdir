@@ -843,11 +843,6 @@ impl IntoIter {
             .checked_sub(self.oldest_opened).unwrap();
         if free == self.opts.max_open {
             self.stack_list[self.oldest_opened].close();
-            // Unwrap is safe here because self.oldest_opened is guaranteed to
-            // never be greater than `self.stack_list.len()`, which implies
-            // that the subtraction won't underflow and that adding 1 will
-            // never overflow.
-            self.oldest_opened = self.oldest_opened.checked_add(1).unwrap();
         }
         // Open a handle to reading the directory's entries.
         let rd = fs::read_dir(dent.path()).map_err(|err| {
@@ -858,9 +853,7 @@ impl IntoIter {
             let mut entries: Vec<_> = list.collect();
             entries.sort_by(|a, b| {
                 match (a, b) {
-                    (&Ok(ref a), &Ok(ref b)) => {
-                        cmp(a, b)
-                    }
+                    (&Ok(ref a), &Ok(ref b)) => cmp(a, b),
                     (&Err(_), &Err(_)) => Ordering::Equal,
                     (&Ok(_), &Err(_)) => Ordering::Greater,
                     (&Err(_), &Ok(_)) => Ordering::Less,
@@ -877,6 +870,22 @@ impl IntoIter {
         // We push this after stack_path since creating the Ancestor can fail.
         // If it fails, then we return the error and won't descend.
         self.stack_list.push(list);
+        // If we had to close out a previous directory stream, then we need to
+        // increment our index the oldest still-open stream. We do this only
+        // after adding to our stack, in order to ensure that the oldest_opened
+        // index remains valid. The worst that can happen is that an already
+        // closed stream will be closed again, which is a no-op.
+        //
+        // We could move the close of the stream above into this if-body, but
+        // then we would have more than the maximum number of file descriptors
+        // open at a particular point in time.
+        if free == self.opts.max_open {
+            // Unwrap is safe here because self.oldest_opened is guaranteed to
+            // never be greater than `self.stack_list.len()`, which implies
+            // that the subtraction won't underflow and that adding 1 will
+            // never overflow.
+            self.oldest_opened = self.oldest_opened.checked_add(1).unwrap();
+        }
         Ok(())
     }
 
