@@ -724,10 +724,7 @@ impl IntoIter {
     /// [`filter_entry`]: #method.filter_entry
     pub fn skip_current_dir(&mut self) {
         if !self.stack_list.is_empty() {
-            self.stack_list.pop();
-        }
-        if !self.stack_path.is_empty() {
-            self.stack_path.pop();
+            self.pop();
         }
     }
 
