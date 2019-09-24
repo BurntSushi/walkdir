@@ -660,7 +660,14 @@ impl Iterator for IntoIter {
                 .next();
             match next {
                 None => self.pop(),
-                Some(Err(err)) => return Some(Err(err)),
+                Some(Err(err)) => {
+                    // There is an error with this path,
+                    // thus, we need to pop the current
+                    // path or we run the risk of getting
+                    // stuck in a loop.
+                    self.pop();
+                    return Some(Err(err));
+                },
                 Some(Ok(dent)) => {
                     if let Some(result) = self.handle_entry(dent) {
                         return Some(result);
