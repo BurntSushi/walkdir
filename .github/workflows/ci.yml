@@ -55,6 +55,7 @@ jobs:
       uses: actions-rs/toolchain@v1
       with:
         toolchain: ${{ matrix.rust }}
+        override: true
         profile: minimal
     - run: cargo build --verbose
     - run: cargo doc --verbose
