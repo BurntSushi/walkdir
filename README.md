@@ -86,18 +86,18 @@ for entry in walker.filter_entry(|e| !is_hidden(e)) {
 }
 ```
 
-### Motivation
+### Minimum Rust version policy
 
-`std::fs` has an unstable `walk_dir` implementation that needed some design
-work. I started off on that task, but it quickly became apparent that walking
-a directory recursively is quite complex and may not be a good fit for `std`
-right away.
+This crate's minimum supported `rustc` version is `1.23.0`.
 
-This should at least resolve most or all of the issues reported here (and then
-some):
+The current policy is that the minimum Rust version required to use this crate
+can be increased in minor version updates. For example, if `crate 1.0` requires
+Rust 1.20.0, then `crate 1.0.z` for all values of `z` will also require Rust
+1.20.0 or newer. However, `crate 1.y` for `y > 0` may require a newer minimum
+version of Rust.
 
-* https://github.com/rust-lang/rust/issues/27707
-* https://github.com/rust-lang/rust/issues/23715
+In general, this crate will be conservative with respect to the minimum
+supported version of Rust.
 
 ### Performance
 
