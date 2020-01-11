@@ -98,16 +98,11 @@ impl Dir {
 
     /// Run the given iterator and return the result as a distinct collection
     /// of directory entries and errors.
-    pub fn run_recursive<I>(
-        &self,
-        it: I,
-    ) -> RecursiveResults
-    where I: IntoIterator<Item=result::Result<DirEntry, Error>>
+    pub fn run_recursive<I>(&self, it: I) -> RecursiveResults
+    where
+        I: IntoIterator<Item = result::Result<DirEntry, Error>>,
     {
-        let mut results = RecursiveResults {
-            ents: vec![],
-            errs: vec![],
-        };
+        let mut results = RecursiveResults { ents: vec![], errs: vec![] };
         for result in it {
             match result {
                 Ok(ent) => results.ents.push(ent),
@@ -170,7 +165,9 @@ impl Dir {
             .map_err(|e| {
                 err!(
                     "failed to symlink file {} with target {}: {}",
-                    src.display(), link_name.display(), e
+                    src.display(),
+                    link_name.display(),
+                    e
                 )
             })
             .unwrap()
@@ -199,7 +196,9 @@ impl Dir {
             .map_err(|e| {
                 err!(
                     "failed to symlink directory {} with target {}: {}",
-                    src.display(), link_name.display(), e
+                    src.display(),
+                    link_name.display(),
+                    e
                 )
             })
             .unwrap()
@@ -225,7 +224,7 @@ impl TempDir {
     /// temporary directory.
     pub fn new() -> Result<TempDir> {
         #[allow(deprecated)]
-        use std::sync::atomic::{ATOMIC_USIZE_INIT, AtomicUsize, Ordering};
+        use std::sync::atomic::{AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
 
         static TRIES: usize = 100;
         #[allow(deprecated)]

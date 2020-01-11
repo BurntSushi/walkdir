@@ -118,7 +118,7 @@ extern crate winapi_util;
 #[cfg(test)]
 doctest!("../README.md");
 
-use std::cmp::{Ordering, min};
+use std::cmp::{min, Ordering};
 use std::fmt;
 use std::fs::{self, ReadDir};
 use std::io;
@@ -148,7 +148,7 @@ macro_rules! itry {
             Ok(v) => v,
             Err(err) => return Some(Err(From::from(err))),
         }
-    }
+    };
 }
 
 /// A result type for walkdir operations.
@@ -249,9 +249,14 @@ struct WalkDirOptions {
     max_open: usize,
     min_depth: usize,
     max_depth: usize,
-    sorter: Option<Box<
-        dyn FnMut(&DirEntry,&DirEntry) -> Ordering + Send + Sync + 'static
-    >>,
+    sorter: Option<
+        Box<
+            dyn FnMut(&DirEntry, &DirEntry) -> Ordering
+                + Send
+                + Sync
+                + 'static,
+        >,
+    >,
     contents_first: bool,
     same_file_system: bool,
 }
@@ -392,7 +397,8 @@ impl WalkDir {
     /// WalkDir::new("foo").sort_by(|a,b| a.file_name().cmp(b.file_name()));
     /// ```
     pub fn sort_by<F>(mut self, cmp: F) -> Self
-    where F: FnMut(&DirEntry, &DirEntry) -> Ordering + Send + Sync + 'static
+    where
+        F: FnMut(&DirEntry, &DirEntry) -> Ordering + Send + Sync + 'static,
     {
         self.opts.sorter = Some(Box::new(cmp));
         self
@@ -565,10 +571,7 @@ impl Ancestor {
     #[cfg(windows)]
     fn new(dent: &DirEntry) -> io::Result<Ancestor> {
         let handle = Handle::from_path(dent.path())?;
-        Ok(Ancestor {
-            path: dent.path().to_path_buf(),
-            handle: handle,
-        })
+        Ok(Ancestor { path: dent.path().to_path_buf(), handle: handle })
     }
 
     /// Create a new ancestor from the given directory path.
@@ -653,7 +656,8 @@ impl Iterator for IntoIter {
             }
             // Unwrap is safe here because we've verified above that
             // `self.stack_list` is not empty
-            let next = self.stack_list
+            let next = self
+                .stack_list
                 .last_mut()
                 .expect("BUG: stack should be non-empty")
                 .next();
@@ -774,7 +778,8 @@ impl IntoIter {
     /// [`min_depth`]: struct.WalkDir.html#method.min_depth
     /// [`max_depth`]: struct.WalkDir.html#method.max_depth
     pub fn filter_entry<P>(self, predicate: P) -> FilterEntry<Self, P>
-    where P: FnMut(&DirEntry) -> bool
+    where
+        P: FnMut(&DirEntry) -> bool,
     {
         FilterEntry { it: self, predicate: predicate }
     }
@@ -825,7 +830,9 @@ impl IntoIter {
             if self.depth < self.deferred_dirs.len() {
                 // Unwrap is safe here because we've guaranteed that
                 // `self.deferred_dirs.len()` can never be less than 1
-                let deferred: DirEntry = self.deferred_dirs.pop()
+                let deferred: DirEntry = self
+                    .deferred_dirs
+                    .pop()
                     .expect("BUG: deferred_dirs should be non-empty");
                 if !self.skippable() {
                     return Some(deferred);
@@ -837,9 +844,8 @@ impl IntoIter {
 
     fn push(&mut self, dent: &DirEntry) -> Result<()> {
         // Make room for another open file descriptor if we've hit the max.
-        let free = self.stack_list
-            .len()
-            .checked_sub(self.oldest_opened).unwrap();
+        let free =
+            self.stack_list.len().checked_sub(self.oldest_opened).unwrap();
         if free == self.opts.max_open {
             self.stack_list[self.oldest_opened].close();
         }
@@ -850,20 +856,17 @@ impl IntoIter {
         let mut list = DirList::Opened { depth: self.depth, it: rd };
         if let Some(ref mut cmp) = self.opts.sorter {
             let mut entries: Vec<_> = list.collect();
-            entries.sort_by(|a, b| {
-                match (a, b) {
-                    (&Ok(ref a), &Ok(ref b)) => cmp(a, b),
-                    (&Err(_), &Err(_)) => Ordering::Equal,
-                    (&Ok(_), &Err(_)) => Ordering::Greater,
-                    (&Err(_), &Ok(_)) => Ordering::Less,
-                }
+            entries.sort_by(|a, b| match (a, b) {
+                (&Ok(ref a), &Ok(ref b)) => cmp(a, b),
+                (&Err(_), &Err(_)) => Ordering::Equal,
+                (&Ok(_), &Err(_)) => Ordering::Greater,
+                (&Err(_), &Ok(_)) => Ordering::Less,
             });
             list = DirList::Closed(entries.into_iter());
         }
         if self.opts.follow_links {
-            let ancestor = Ancestor::new(&dent).map_err(|err| {
-                Error::from_io(self.depth, err)
-            })?;
+            let ancestor = Ancestor::new(&dent)
+                .map_err(|err| Error::from_io(self.depth, err))?;
             self.stack_path.push(ancestor);
         }
         // We push this after stack_path since creating the Ancestor can fail.
@@ -900,11 +903,8 @@ impl IntoIter {
     }
 
     fn follow(&self, mut dent: DirEntry) -> Result<DirEntry> {
-        dent = DirEntry::from_path(
-            self.depth,
-            dent.path().to_path_buf(),
-            true,
-        )?;
+        dent =
+            DirEntry::from_path(self.depth, dent.path().to_path_buf(), true)?;
         // The only way a symlink can cause a loop is if it points
         // to a directory. Otherwise, it always points to a leaf
         // and we can omit any loop checks.
@@ -915,16 +915,17 @@ impl IntoIter {
     }
 
     fn check_loop<P: AsRef<Path>>(&self, child: P) -> Result<()> {
-        let hchild = Handle::from_path(&child).map_err(|err| {
-            Error::from_io(self.depth, err)
-        })?;
+        let hchild = Handle::from_path(&child)
+            .map_err(|err| Error::from_io(self.depth, err))?;
         for ancestor in self.stack_path.iter().rev() {
-            let is_same = ancestor.is_same(&hchild).map_err(|err| {
-                Error::from_io(self.depth, err)
-            })?;
+            let is_same = ancestor
+                .is_same(&hchild)
+                .map_err(|err| Error::from_io(self.depth, err))?;
             if is_same {
                 return Err(Error::from_loop(
-                    self.depth, &ancestor.path, child.as_ref(),
+                    self.depth,
+                    &ancestor.path,
+                    child.as_ref(),
                 ));
             }
         }
@@ -934,7 +935,8 @@ impl IntoIter {
     fn is_same_file_system(&mut self, dent: &DirEntry) -> Result<bool> {
         let dent_device = util::device_num(dent.path())
             .map_err(|err| Error::from_entry(dent, err))?;
-        Ok(self.root_device
+        Ok(self
+            .root_device
             .map(|d| d == dent_device)
             .expect("BUG: called is_same_file_system without root device"))
     }
@@ -963,9 +965,9 @@ impl Iterator for DirList {
                 Err(ref mut err) => err.take().map(Err),
                 Ok(ref mut rd) => rd.next().map(|r| match r {
                     Ok(r) => DirEntry::from_entry(depth + 1, &r),
-                    Err(err) => Err(Error::from_io(depth + 1, err))
+                    Err(err) => Err(Error::from_io(depth + 1, err)),
                 }),
-            }
+            },
         }
     }
 }
@@ -998,7 +1000,8 @@ pub struct FilterEntry<I, P> {
 }
 
 impl<P> Iterator for FilterEntry<IntoIter, P>
-where P: FnMut(&DirEntry) -> bool
+where
+    P: FnMut(&DirEntry) -> bool,
 {
     type Item = Result<DirEntry>;
 
@@ -1025,7 +1028,10 @@ where P: FnMut(&DirEntry) -> bool
     }
 }
 
-impl<P> FilterEntry<IntoIter, P> where P: FnMut(&DirEntry) -> bool {
+impl<P> FilterEntry<IntoIter, P>
+where
+    P: FnMut(&DirEntry) -> bool,
+{
     /// Yields only entries which satisfy the given predicate and skips
     /// descending into directories that do not satisfy the given predicate.
     ///

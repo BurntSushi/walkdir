@@ -59,8 +59,9 @@ fn print_count<W1, W2>(
     mut stdout: W1,
     mut stderr: W2,
 ) -> Result<()>
-where W1: io::Write,
-      W2: io::Write
+where
+    W1: io::Write,
+    W2: io::Write,
 {
     let mut count: u64 = 0;
     for dir in &args.dirs {
@@ -84,8 +85,9 @@ fn print_paths<W1, W2>(
     mut stdout: W1,
     mut stderr: W2,
 ) -> Result<()>
-where W1: io::Write,
-      W2: io::Write
+where
+    W1: io::Write,
+    W2: io::Write,
 {
     for dir in &args.dirs {
         if args.tree {
@@ -103,8 +105,9 @@ fn print_paths_flat<W1, W2>(
     mut stderr: W2,
     dir: &Path,
 ) -> Result<()>
-where W1: io::Write,
-      W2: io::Write
+where
+    W1: io::Write,
+    W2: io::Write,
 {
     for result in args.walkdir(dir) {
         let dent = match result {
@@ -128,8 +131,9 @@ fn print_paths_tree<W1, W2>(
     mut stderr: W2,
     dir: &Path,
 ) -> Result<()>
-where W1: io::Write,
-      W2: io::Write
+where
+    W1: io::Write,
+    W2: io::Write,
 {
     for result in args.walkdir(dir) {
         let dent = match result {
@@ -166,62 +170,78 @@ struct Args {
 
 impl Args {
     fn parse() -> Result<Args> {
-        use clap::{App, Arg, crate_authors, crate_version};
+        use clap::{crate_authors, crate_version, App, Arg};
 
         let parsed = App::new("List files using walkdir")
             .author(crate_authors!())
             .version(crate_version!())
             .max_term_width(100)
-            .arg(Arg::with_name("dirs")
-                 .multiple(true)
+            .arg(Arg::with_name("dirs").multiple(true))
+            .arg(
+                Arg::with_name("follow-links")
+                    .long("follow-links")
+                    .short("L")
+                    .help("Follow symbolic links."),
             )
-            .arg(Arg::with_name("follow-links")
-                 .long("follow-links").short("L")
-                 .help("Follow symbolic links.")
+            .arg(
+                Arg::with_name("min-depth")
+                    .long("min-depth")
+                    .takes_value(true)
+                    .help("Only show entries at or above this depth."),
             )
-            .arg(Arg::with_name("min-depth")
-                 .long("min-depth")
-                 .takes_value(true)
-                 .help("Only show entries at or above this depth.")
+            .arg(
+                Arg::with_name("max-depth")
+                    .long("max-depth")
+                    .takes_value(true)
+                    .help("Only show entries at or below this depth."),
             )
-            .arg(Arg::with_name("max-depth")
-                 .long("max-depth")
-                 .takes_value(true)
-                 .help("Only show entries at or below this depth.")
+            .arg(
+                Arg::with_name("max-open")
+                    .long("max-open")
+                    .takes_value(true)
+                    .default_value("10")
+                    .help("Use at most this many open file descriptors."),
             )
-            .arg(Arg::with_name("max-open")
-                 .long("max-open")
-                 .takes_value(true)
-                 .default_value("10")
-                 .help("Use at most this many open file descriptors.")
+            .arg(
+                Arg::with_name("tree")
+                    .long("tree")
+                    .help("Show file paths in a tree."),
             )
-            .arg(Arg::with_name("tree")
-                 .long("tree")
-                 .help("Show file paths in a tree.")
+            .arg(
+                Arg::with_name("ignore-errors")
+                    .long("ignore-errors")
+                    .short("q")
+                    .help("Don't print error messages."),
             )
-            .arg(Arg::with_name("ignore-errors")
-                 .long("ignore-errors").short("q")
-                 .help("Don't print error messages.")
+            .arg(
+                Arg::with_name("sort")
+                    .long("sort")
+                    .help("Sort file paths lexicographically."),
             )
-            .arg(Arg::with_name("sort")
-                 .long("sort")
-                 .help("Sort file paths lexicographically.")
+            .arg(
+                Arg::with_name("depth-first").long("depth-first").help(
+                    "Show directory contents before the directory path.",
+                ),
             )
-            .arg(Arg::with_name("depth-first")
-                 .long("depth-first")
-                 .help("Show directory contents before the directory path.")
+            .arg(
+                Arg::with_name("same-file-system")
+                    .long("same-file-system")
+                    .short("x")
+                    .help(
+                        "Only show paths on the same file system as the root.",
+                    ),
             )
-            .arg(Arg::with_name("same-file-system")
-                 .long("same-file-system").short("x")
-                 .help("Only show paths on the same file system as the root.")
+            .arg(
+                Arg::with_name("timeit")
+                    .long("timeit")
+                    .short("t")
+                    .help("Print timing info."),
             )
-            .arg(Arg::with_name("timeit")
-                 .long("timeit").short("t")
-                 .help("Print timing info.")
-            )
-            .arg(Arg::with_name("count")
-                 .long("count").short("c")
-                 .help("Print only a total count of all file paths.")
+            .arg(
+                Arg::with_name("count")
+                    .long("count")
+                    .short("c")
+                    .help("Print only a total count of all file paths."),
             )
             .get_matches();
 
@@ -260,22 +280,21 @@ impl Args {
             walkdir = walkdir.max_open(x);
         }
         if self.sort {
-            walkdir = walkdir.sort_by(|a, b| {
-                a.file_name().cmp(b.file_name())
-            });
+            walkdir = walkdir.sort_by(|a, b| a.file_name().cmp(b.file_name()));
         }
         walkdir
     }
 }
 
-fn parse_usize(parsed: &clap::ArgMatches, flag: &str) -> Result<Option<usize>> {
+fn parse_usize(
+    parsed: &clap::ArgMatches,
+    flag: &str,
+) -> Result<Option<usize>> {
     match parsed.value_of_lossy(flag) {
         None => Ok(None),
-        Some(x) => {
-            x.parse().map(Some).or_else(|e| {
-                err!("failed to parse --{} as a number: {}", flag, e)
-            })
-        }
+        Some(x) => x.parse().map(Some).or_else(|e| {
+            err!("failed to parse --{} as a number: {}", flag, e)
+        }),
     }
 }
 

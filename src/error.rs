@@ -141,10 +141,10 @@ impl Error {
     /// [`into_io_error`]: struct.Error.html#method.into_io_error
     /// [impl]: struct.Error.html#impl-From%3CError%3E
     pub fn io_error(&self) -> Option<&io::Error> {
-       match self.inner {
+        match self.inner {
             ErrorInner::Io { ref err, .. } => Some(err),
             ErrorInner::Loop { .. } => None,
-       }
+        }
     }
 
     /// Similar to [`io_error`] except consumes self to convert to the original
@@ -153,10 +153,10 @@ impl Error {
     /// [`io_error`]: struct.Error.html#method.io_error
     /// [`io::Error`]: https://doc.rust-lang.org/stable/std/io/struct.Error.html
     pub fn into_io_error(self) -> Option<io::Error> {
-       match self.inner {
+        match self.inner {
             ErrorInner::Io { err, .. } => Some(err),
             ErrorInner::Loop { .. } => None,
-       }
+        }
     }
 
     pub(crate) fn from_path(
@@ -181,10 +181,7 @@ impl Error {
     }
 
     pub(crate) fn from_io(depth: usize, err: io::Error) -> Self {
-        Error {
-            depth: depth,
-            inner: ErrorInner::Io { path: None, err: err },
-        }
+        Error { depth: depth, inner: ErrorInner::Io { path: None, err: err } }
     }
 
     pub(crate) fn from_loop(
@@ -197,7 +194,7 @@ impl Error {
             inner: ErrorInner::Loop {
                 ancestor: ancestor.to_path_buf(),
                 child: child.to_path_buf(),
-            }
+            },
         }
     }
 }
@@ -226,18 +223,20 @@ impl error::Error for Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.inner {
-            ErrorInner::Io { path: None, ref err } => {
-                err.fmt(f)
-            }
-            ErrorInner::Io { path: Some(ref path), ref err } => {
-                write!(f, "IO error for operation on {}: {}",
-                       path.display(), err)
-            }
-            ErrorInner::Loop { ref ancestor, ref child } => {
-                write!(f, "File system loop found: \
-                           {} points to an ancestor {}",
-                       child.display(), ancestor.display())
-            }
+            ErrorInner::Io { path: None, ref err } => err.fmt(f),
+            ErrorInner::Io { path: Some(ref path), ref err } => write!(
+                f,
+                "IO error for operation on {}: {}",
+                path.display(),
+                err
+            ),
+            ErrorInner::Loop { ref ancestor, ref child } => write!(
+                f,
+                "File system loop found: \
+                 {} points to an ancestor {}",
+                child.display(),
+                ancestor.display()
+            ),
         }
     }
 }
@@ -256,9 +255,7 @@ impl From<Error> for io::Error {
     /// [`into_io_error`]: struct.WalkDir.html#method.into_io_error
     fn from(walk_err: Error) -> io::Error {
         let kind = match walk_err {
-            Error { inner: ErrorInner::Io { ref err, .. }, .. } => {
-                err.kind()
-            }
+            Error { inner: ErrorInner::Io { ref err, .. }, .. } => err.kind(),
             Error { inner: ErrorInner::Loop { .. }, .. } => {
                 io::ErrorKind::Other
             }

@@ -6,7 +6,7 @@ use WalkDir;
 
 #[test]
 fn send_sync_traits() {
-    use {IntoIter, FilterEntry};
+    use {FilterEntry, IntoIter};
 
     fn assert_send<T: Send>() {}
     fn assert_sync<T: Sync>() {}
@@ -209,9 +209,8 @@ fn many_mixed() {
 
 #[test]
 fn nested() {
-    let nested = PathBuf::from(
-        "a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z",
-    );
+    let nested =
+        PathBuf::from("a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z");
     let dir = Dir::tmp();
     dir.mkdirp(&nested);
     dir.touch(nested.join("A"));
@@ -255,9 +254,8 @@ fn nested() {
 
 #[test]
 fn nested_small_max_open() {
-    let nested = PathBuf::from(
-        "a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z",
-    );
+    let nested =
+        PathBuf::from("a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z");
     let dir = Dir::tmp();
     dir.mkdirp(&nested);
     dir.touch(nested.join("A"));
@@ -723,10 +721,7 @@ fn min_depth_1() {
     let r = dir.run_recursive(wd);
     r.assert_no_errors();
 
-    let expected = vec![
-        dir.join("a"),
-        dir.join("a").join("b"),
-    ];
+    let expected = vec![dir.join("a"), dir.join("a").join("b")];
     assert_eq!(expected, r.sorted_paths());
 }
 
@@ -739,9 +734,7 @@ fn min_depth_2() {
     let r = dir.run_recursive(wd);
     r.assert_no_errors();
 
-    let expected = vec![
-        dir.join("a").join("b"),
-    ];
+    let expected = vec![dir.join("a").join("b")];
     assert_eq!(expected, r.sorted_paths());
 }
 
@@ -754,9 +747,7 @@ fn max_depth_0() {
     let r = dir.run_recursive(wd);
     r.assert_no_errors();
 
-    let expected = vec![
-        dir.path().to_path_buf(),
-    ];
+    let expected = vec![dir.path().to_path_buf()];
     assert_eq!(expected, r.sorted_paths());
 }
 
@@ -769,10 +760,7 @@ fn max_depth_1() {
     let r = dir.run_recursive(wd);
     r.assert_no_errors();
 
-    let expected = vec![
-        dir.path().to_path_buf(),
-        dir.join("a"),
-    ];
+    let expected = vec![dir.path().to_path_buf(), dir.join("a")];
     assert_eq!(expected, r.sorted_paths());
 }
 
@@ -785,11 +773,8 @@ fn max_depth_2() {
     let r = dir.run_recursive(wd);
     r.assert_no_errors();
 
-    let expected = vec![
-        dir.path().to_path_buf(),
-        dir.join("a"),
-        dir.join("a").join("b"),
-    ];
+    let expected =
+        vec![dir.path().to_path_buf(), dir.join("a"), dir.join("a").join("b")];
     assert_eq!(expected, r.sorted_paths());
 }
 
@@ -803,9 +788,7 @@ fn min_max_depth_diff_nada() {
     let r = dir.run_recursive(wd);
     r.assert_no_errors();
 
-    let expected = vec![
-        dir.join("a").join("b").join("c"),
-    ];
+    let expected = vec![dir.join("a").join("b").join("c")];
     assert_eq!(expected, r.sorted_paths());
 }
 
@@ -818,9 +801,7 @@ fn min_max_depth_diff_0() {
     let r = dir.run_recursive(wd);
     r.assert_no_errors();
 
-    let expected = vec![
-        dir.join("a").join("b"),
-    ];
+    let expected = vec![dir.join("a").join("b")];
     assert_eq!(expected, r.sorted_paths());
 }
 
@@ -833,10 +814,7 @@ fn min_max_depth_diff_1() {
     let r = dir.run_recursive(wd);
     r.assert_no_errors();
 
-    let expected = vec![
-        dir.join("a"),
-        dir.join("a").join("b"),
-    ];
+    let expected = vec![dir.join("a"), dir.join("a").join("b")];
     assert_eq!(expected, r.sorted_paths());
 }
 
@@ -849,10 +827,7 @@ fn contents_first() {
     let r = dir.run_recursive(wd);
     r.assert_no_errors();
 
-    let expected = vec![
-        dir.join("a"),
-        dir.path().to_path_buf(),
-    ];
+    let expected = vec![dir.join("a"), dir.path().to_path_buf()];
     assert_eq!(expected, r.paths());
 }
 
@@ -910,7 +885,7 @@ fn sort() {
     dir.mkdirp("quux");
 
     let wd = WalkDir::new(dir.path())
-        .sort_by(|a,b| a.file_name().cmp(b.file_name()).reverse());
+        .sort_by(|a, b| a.file_name().cmp(b.file_name()).reverse());
     let r = dir.run_recursive(wd);
     r.assert_no_errors();
 
@@ -933,7 +908,7 @@ fn sort_max_open() {
 
     let wd = WalkDir::new(dir.path())
         .max_open(1)
-        .sort_by(|a,b| a.file_name().cmp(b.file_name()).reverse());
+        .sort_by(|a, b| a.file_name().cmp(b.file_name()).reverse());
     let r = dir.run_recursive(wd);
     r.assert_no_errors();
 
@@ -969,25 +944,18 @@ fn same_file_system() {
     let r = dir.run_recursive(wd);
     r.assert_no_errors();
 
-    let expected = vec![
-        dir.path().to_path_buf(),
-        dir.join("a"),
-        dir.join("sys-link"),
-    ];
+    let expected =
+        vec![dir.path().to_path_buf(), dir.join("a"), dir.join("sys-link")];
     assert_eq!(expected, r.sorted_paths());
 
     // ... now follow symlinks and ensure we don't descend into /sys.
-    let wd = WalkDir::new(dir.path())
-        .same_file_system(true)
-        .follow_links(true);
+    let wd =
+        WalkDir::new(dir.path()).same_file_system(true).follow_links(true);
     let r = dir.run_recursive(wd);
     r.assert_no_errors();
 
-    let expected = vec![
-        dir.path().to_path_buf(),
-        dir.join("a"),
-        dir.join("sys-link"),
-    ];
+    let expected =
+        vec![dir.path().to_path_buf(), dir.join("a"), dir.join("sys-link")];
     assert_eq!(expected, r.sorted_paths());
 }
 

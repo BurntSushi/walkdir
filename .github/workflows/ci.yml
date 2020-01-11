@@ -67,22 +67,22 @@ jobs:
         cargo build --verbose
         cargo test --verbose
 
-        # TODO: Switch to rustfmt for walkdir 3. walkdir 3 is in a
-        # half-finished state, and applying rustfmt now would wreak havoc.
-        #  rustfmt:
-        #    name: rustfmt
-        #    runs-on: ubuntu-18.04
-        #    steps:
-        #    - name: Checkout repository
-        #      uses: actions/checkout@v1
-        #      with:
-        #        fetch-depth: 1
-        #    - name: Install Rust
-        #      uses: hecrj/setup-rust-action@v1
-        #      with:
-        #        rust-version: stable
-        #    - name: Install rustfmt
-        #      run: rustup component add rustfmt
-        #    - name: Check formatting
-        #      run: |
-        #        cargo fmt --all -- --check
+  rustfmt:
+    name: rustfmt
+    runs-on: ubuntu-18.04
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v1
+      with:
+        fetch-depth: 1
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        profile: minimal
+        components: rustfmt
+    - name: Install rustfmt
+      run: rustup component add rustfmt
+    - name: Check formatting
+      run: |
+        cargo fmt --all -- --check
