@@ -105,7 +105,6 @@ for entry in walker.filter_entry(|e| !is_hidden(e)) {
 
 #![deny(missing_docs)]
 #![allow(unknown_lints)]
-#![allow(bare_trait_objects)]
 
 #[cfg(test)]
 #[macro_use]
@@ -251,7 +250,7 @@ struct WalkDirOptions {
     min_depth: usize,
     max_depth: usize,
     sorter: Option<Box<
-        FnMut(&DirEntry,&DirEntry) -> Ordering + Send + Sync + 'static
+        dyn FnMut(&DirEntry,&DirEntry) -> Ordering + Send + Sync + 'static
     >>,
     contents_first: bool,
     same_file_system: bool,

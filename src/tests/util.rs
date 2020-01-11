@@ -11,12 +11,12 @@ use {DirEntry, Error};
 #[macro_export]
 macro_rules! err {
     ($($tt:tt)*) => {
-        Box::<error::Error + Send + Sync>::from(format!($($tt)*))
+        Box::<dyn error::Error + Send + Sync>::from(format!($($tt)*))
     }
 }
 
 /// A convenient result type alias.
-pub type Result<T> = result::Result<T, Box<error::Error + Send + Sync>>;
+pub type Result<T> = result::Result<T, Box<dyn error::Error + Send + Sync>>;
 
 /// The result of running a recursive directory iterator on a single directory.
 #[derive(Debug)]

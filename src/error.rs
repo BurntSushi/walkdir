@@ -203,6 +203,7 @@ impl Error {
 }
 
 impl error::Error for Error {
+    #[allow(deprecated)]
     fn description(&self) -> &str {
         match self.inner {
             ErrorInner::Io { ref err, .. } => err.description(),
@@ -210,7 +211,11 @@ impl error::Error for Error {
         }
     }
 
-    fn cause(&self) -> Option<&error::Error> {
+    fn cause(&self) -> Option<&dyn error::Error> {
+        self.source()
+    }
+
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match self.inner {
             ErrorInner::Io { ref err, .. } => Some(err),
             ErrorInner::Loop { .. } => None,
