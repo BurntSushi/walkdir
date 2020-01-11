@@ -5,8 +5,7 @@ Comes with support for following symbolic links, controlling the number of
 open file descriptors and efficient mechanisms for pruning the entries in the
 directory tree.
 
-[![Linux build status](https://api.travis-ci.org/BurntSushi/walkdir.svg)](https://travis-ci.org/BurntSushi/walkdir)
-[![Windows build status](https://ci.appveyor.com/api/projects/status/github/BurntSushi/walkdir?svg=true)](https://ci.appveyor.com/project/BurntSushi/walkdir)
+[![Build status](https://github.com/BurntSushi/walkdir/workflows/ci/badge.svg)](https://github.com/BurntSushi/walkdir/actions)
 [![](http://meritbadge.herokuapp.com/walkdir)](https://crates.io/crates/walkdir)
 
 Dual-licensed under MIT or the [UNLICENSE](http://unlicense.org).
