@@ -107,16 +107,7 @@ for entry in walker.filter_entry(|e| !is_hidden(e)) {
 #![allow(unknown_lints)]
 
 #[cfg(test)]
-#[macro_use]
-extern crate doc_comment;
-extern crate same_file;
-#[cfg(windows)]
-extern crate winapi;
-#[cfg(windows)]
-extern crate winapi_util;
-
-#[cfg(test)]
-doctest!("../README.md");
+doc_comment::doctest!("../README.md");
 
 use std::cmp::{min, Ordering};
 use std::fmt;
@@ -128,10 +119,10 @@ use std::vec;
 
 use same_file::Handle;
 
-pub use dent::DirEntry;
+pub use crate::dent::DirEntry;
 #[cfg(unix)]
-pub use dent::DirEntryExt;
-pub use error::Error;
+pub use crate::dent::DirEntryExt;
+pub use crate::error::Error;
 
 mod dent;
 mod error;
@@ -262,7 +253,10 @@ struct WalkDirOptions {
 }
 
 impl fmt::Debug for WalkDirOptions {
-    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+    fn fmt(
+        &self,
+        f: &mut fmt::Formatter<'_>,
+    ) -> result::Result<(), fmt::Error> {
         let sorter_str = if self.sorter.is_some() {
             // FnMut isn't `Debug`
             "Some(...)"

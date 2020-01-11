@@ -5,7 +5,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::result;
 
-use {DirEntry, Error};
+use crate::{DirEntry, Error};
 
 /// Create an error from a format!-like syntax.
 #[macro_export]

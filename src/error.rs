@@ -3,7 +3,7 @@ use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use DirEntry;
+use crate::DirEntry;
 
 /// An error produced by recursively walking a directory.
 ///
@@ -221,7 +221,7 @@ impl error::Error for Error {
 }
 
 impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.inner {
             ErrorInner::Io { path: None, ref err } => err.fmt(f),
             ErrorInner::Io { path: Some(ref path), ref err } => write!(

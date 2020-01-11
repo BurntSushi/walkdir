@@ -1,12 +1,12 @@
 use std::fs;
 use std::path::PathBuf;
 
-use tests::util::Dir;
-use WalkDir;
+use crate::tests::util::Dir;
+use crate::WalkDir;
 
 #[test]
 fn send_sync_traits() {
-    use {FilterEntry, IntoIter};
+    use crate::{FilterEntry, IntoIter};
 
     fn assert_send<T: Send>() {}
     fn assert_sync<T: Sync>() {}

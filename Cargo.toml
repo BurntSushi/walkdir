@@ -11,6 +11,7 @@ keywords = ["directory", "recursive", "walk", "iterator"]
 categories = ["filesystem"]
 license = "Unlicense/MIT"
 exclude = ["/ci/*", "/.travis.yml", "/appveyor.yml"]
+edition = "2018"
 
 [badges]
 travis-ci = { repository = "BurntSushi/walkdir" }

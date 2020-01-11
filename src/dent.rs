@@ -3,8 +3,8 @@ use std::fmt;
 use std::fs::{self, FileType};
 use std::path::{Path, PathBuf};
 
-use error::Error;
-use Result;
+use crate::error::Error;
+use crate::Result;
 
 /// A directory entry.
 ///
@@ -352,7 +352,7 @@ impl Clone for DirEntry {
 }
 
 impl fmt::Debug for DirEntry {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "DirEntry({:?})", self.path)
     }
 }
