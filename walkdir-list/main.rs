@@ -21,6 +21,7 @@ use std::result;
 use std::time::Instant;
 
 use bstr::BString;
+use walkdir::Cursor;
 use walkdir::WalkDir;
 
 type Result<T> = result::Result<T, Box<dyn Error>>;
@@ -100,6 +101,33 @@ where
                     res.count += 1;
                     if let Some(ref mut size) = res.size {
                         *size = dent.metadata()?.len();
+                    }
+                }
+                Err(err) => {
+                    if !args.ignore_errors {
+                        writeln!(stderr, "ERROR: {}", err)?;
+                    }
+                }
+            }
+        }
+        Ok(res)
+    }
+
+    fn count_cursor<W: io::Write>(
+        args: &Args,
+        mut stderr: W,
+        dir: &Path,
+    ) -> Result<CountResult> {
+        let mut res = args.empty_count_result();
+        let mut cursor = args.cursor(dir);
+        loop {
+            match cursor.read() {
+                Ok(None) => break,
+                Ok(Some(entry)) => {
+                    res.count += 1;
+                    if let Some(ref mut size) = res.size {
+                        let md = entry.path().metadata()?;
+                        *size = md.len();
                     }
                 }
                 Err(err) => {
@@ -246,6 +274,8 @@ where
             res = res.add(count_unix(args, &mut stderr, &dir)?);
         } else if args.flat_linux {
             res = res.add(count_linux(args, &mut stderr, &dir)?);
+        } else if args.flat_cursor {
+            res = res.add(count_cursor(args, &mut stderr, &dir)?);
         } else {
             res = res.add(count_walkdir(args, &mut stderr, &dir)?);
         }
@@ -318,6 +348,30 @@ where
             };
             write_os_str(&mut stdout, &dent.file_name())?;
             stdout.write_all(b"\n")?;
+        }
+        Ok(())
+    }
+
+    fn print_cursor<W1: io::Write, W2: io::Write>(
+        args: &Args,
+        mut stdout: W1,
+        mut stderr: W2,
+        dir: &Path,
+    ) -> Result<()> {
+        let mut cursor = args.cursor(dir);
+        loop {
+            match cursor.read() {
+                Ok(None) => break,
+                Ok(Some(entry)) => {
+                    write_os_str(&mut stdout, entry.path().as_os_str())?;
+                    stdout.write_all(b"\n")?;
+                }
+                Err(err) => {
+                    if !args.ignore_errors {
+                        writeln!(stderr, "ERROR: {}", err)?;
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -472,6 +526,8 @@ where
             print_unix(&args, &mut stdout, &mut stderr, dir)?;
         } else if args.flat_linux {
             print_linux(&args, &mut stdout, &mut stderr, dir)?;
+        } else if args.flat_cursor {
+            print_cursor(&args, &mut stdout, &mut stderr, dir)?;
         } else {
             print_walkdir(&args, &mut stdout, &mut stderr, dir)?;
         }
@@ -497,6 +553,7 @@ struct Args {
     flat_windows: bool,
     flat_unix: bool,
     flat_linux: bool,
+    flat_cursor: bool,
 }
 
 impl Args {
@@ -579,9 +636,22 @@ impl Args {
                     .conflicts_with("flat-unix")
                     .conflicts_with("flat-linux")
                     .conflicts_with("flat-windows")
+                    .conflicts_with("flat-cursor")
                     .help(
                         "Use std::fs::read_dir to list contents of a single \
                          directory. This is NOT recursive.",
+                    ),
+            )
+            .arg(
+                Arg::with_name("flat-cursor")
+                    .long("flat-cursor")
+                    .conflicts_with("flat-std")
+                    .conflicts_with("flat-unix")
+                    .conflicts_with("flat-linux")
+                    .conflicts_with("flat-windows")
+                    .help(
+                        "Use walkdir::Cursor to recursively list the contents \
+                         of a single directory.",
                     ),
             );
         if cfg!(unix) {
@@ -591,6 +661,7 @@ impl Args {
                     .conflicts_with("flat-std")
                     .conflicts_with("flat-linux")
                     .conflicts_with("flat-windows")
+                    .conflicts_with("flat-cursor")
                     .help(
                         "Use Unix-specific APIs to list contents of a single \
                          directory. This is NOT recursive.",
@@ -604,6 +675,7 @@ impl Args {
                     .conflicts_with("flat-std")
                     .conflicts_with("flat-unix")
                     .conflicts_with("flat-windows")
+                    .conflicts_with("flat-cursor")
                     .help(
                         "Use Linux-specific syscalls (getdents64) to list \
                          contents of a single directory. This is NOT \
@@ -618,6 +690,7 @@ impl Args {
                 .conflicts_with("flat-std")
                 .conflicts_with("flat-unix")
                 .conflicts_with("flat-linux")
+                .conflicts_with("flat-cursor")
                 .help("Use Windows-specific APIs to list contents of a single \
                        directory. This is NOT recursive."));
         }
@@ -644,6 +717,7 @@ impl Args {
             flat_windows: parsed.is_present("flat-windows"),
             flat_unix: parsed.is_present("flat-unix"),
             flat_linux: parsed.is_present("flat-linux"),
+            flat_cursor: parsed.is_present("flat-cursor"),
         })
     }
 
@@ -665,6 +739,10 @@ impl Args {
             walkdir = walkdir.sort_by(|a, b| a.file_name().cmp(b.file_name()));
         }
         walkdir
+    }
+
+    fn cursor(&self, path: &Path) -> Cursor {
+        Cursor::new(path)
     }
 
     fn empty_count_result(&self) -> CountResult {
