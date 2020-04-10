@@ -194,7 +194,7 @@ impl DirEntry {
     }
 
     #[cfg(windows)]
-    pub(crate) fn from_entry(
+    pub fn from_entry(
         depth: usize,
         ent: &fs::DirEntry,
     ) -> Result<DirEntry> {
@@ -215,7 +215,7 @@ impl DirEntry {
     }
 
     #[cfg(unix)]
-    pub(crate) fn from_entry(
+    pub fn from_entry(
         depth: usize,
         ent: &fs::DirEntry,
     ) -> Result<DirEntry> {
@@ -234,7 +234,7 @@ impl DirEntry {
     }
 
     #[cfg(not(any(unix, windows)))]
-    pub(crate) fn from_entry(
+    pub fn from_entry(
         depth: usize,
         ent: &fs::DirEntry,
     ) -> Result<DirEntry> {
@@ -250,7 +250,7 @@ impl DirEntry {
     }
 
     #[cfg(windows)]
-    pub(crate) fn from_path(
+    pub fn from_path(
         depth: usize,
         pb: PathBuf,
         follow: bool,
@@ -272,7 +272,7 @@ impl DirEntry {
     }
 
     #[cfg(unix)]
-    pub(crate) fn from_path(
+    pub fn from_path(
         depth: usize,
         pb: PathBuf,
         follow: bool,
@@ -296,7 +296,7 @@ impl DirEntry {
     }
 
     #[cfg(not(any(unix, windows)))]
-    pub(crate) fn from_path(
+    pub fn from_path(
         depth: usize,
         pb: PathBuf,
         follow: bool,
