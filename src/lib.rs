@@ -515,6 +515,23 @@ impl IntoIterator for WalkDir {
     }
 }
 
+/// Common trait for [`IntoIter`], [`FilterEntry`], and [`TryFilterEntry`].
+///
+/// This allows composition while still being efficient at skipping directories.
+///
+/// Note hidden from docs because each struct has also has a public method that is documented.
+/// Having those methods also keeps the API backwards compatible as the trait doesn't need to
+/// be in scope to use them.
+///
+/// [`IntoIter`]: struct.IntoIter.html
+/// [`FilterEntry`]: struct.FilterEntry.html
+/// [`TryFilterEntry`]: struct.TryFilterEntry.html
+#[doc(hidden)]
+pub trait WalkIterator: Iterator<Item = Result<DirEntry>> {
+    /// See [`IntoIter::skip_current_dir`](struct.IntoIter.html#method.skip_current_dir).
+    fn skip_current_dir(&mut self);
+}
+
 /// An iterator for recursively descending into a directory.
 ///
 /// A value with this type must be constructed with the [`WalkDir`] type, which
@@ -698,6 +715,15 @@ impl Iterator for IntoIter {
     }
 }
 
+impl WalkIterator for IntoIter {
+    /// See [`WalkIterator::skip_current_dir`](struct.WalkIterator.html#method.skip_current_dir).
+    fn skip_current_dir(&mut self) {
+        if !self.stack_list.is_empty() {
+            self.pop();
+        }
+    }
+}
+
 impl IntoIter {
     /// Skips the current directory.
     ///
@@ -738,14 +764,13 @@ impl IntoIter {
     /// ```
     ///
     /// You may find it more convenient to use the [`filter_entry`] iterator
-    /// adapter. (See its documentation for the same example functionality as
-    /// above.)
+    /// adapter, or [`try_filter_entry`] if you also need to filter errors.
+    /// (See their documentation for examples.)
     ///
-    /// [`filter_entry`]: #method.filter_entry
+    /// [`filter_entry`]: struct.IntoIter.html#method.filter_entry
+    /// [`try_filter_entry`]: struct.IntoIter.html#method.try_filter_entry
     pub fn skip_current_dir(&mut self) {
-        if !self.stack_list.is_empty() {
-            self.pop();
-        }
+        WalkIterator::skip_current_dir(self)
     }
 
     /// Yields only entries which satisfy the given predicate and skips
@@ -1071,8 +1096,9 @@ pub struct FilterEntry<I, P> {
     predicate: P,
 }
 
-impl<P> Iterator for FilterEntry<IntoIter, P>
+impl<I, P> Iterator for FilterEntry<I, P>
 where
+    I: WalkIterator,
     P: FnMut(&DirEntry) -> bool,
 {
     type Item = Result<DirEntry>;
@@ -1100,8 +1126,9 @@ where
     }
 }
 
-impl<P> FilterEntry<IntoIter, P>
+impl<I, P> FilterEntry<I, P>
 where
+    I: WalkIterator,
     P: FnMut(&DirEntry) -> bool,
 {
     /// Yields only entries which satisfy the given predicate and skips
@@ -1246,11 +1273,23 @@ where
     /// ```
     ///
     /// You may find it more convenient to use the [`filter_entry`] iterator
-    /// adapter. (See its documentation for the same example functionality as
-    /// above.)
+    /// adapter, or [`try_filter_entry`] if you also need to filter errors.
+    /// (See their documentation for examples.)
     ///
-    /// [`filter_entry`]: #method.filter_entry
+    /// [`filter_entry`]: struct.IntoIter.html#method.filter_entry
+    /// [`try_filter_entry`]: struct.IntoIter.html#method.try_filter_entry
     pub fn skip_current_dir(&mut self) {
+        WalkIterator::skip_current_dir(self)
+    }
+}
+
+impl<I, P> WalkIterator for FilterEntry<I, P>
+where
+    I: WalkIterator,
+    P: FnMut(&DirEntry) -> bool,
+{
+    /// See [`FilterEntry::skip_current_dir`](struct.FilterEntry.html#method.skip_current_dir).
+    fn skip_current_dir(&mut self) {
         self.it.skip_current_dir();
     }
 }
@@ -1282,8 +1321,9 @@ pub struct TryFilterEntry<I, P> {
     predicate: P,
 }
 
-impl<P> Iterator for TryFilterEntry<IntoIter, P>
+impl<I, P> Iterator for TryFilterEntry<I, P>
 where
+    I: WalkIterator,
     P: FnMut(&Result<DirEntry>) -> bool,
 {
     type Item = Result<DirEntry>;
@@ -1309,8 +1349,9 @@ where
     }
 }
 
-impl<P> TryFilterEntry<IntoIter, P>
+impl<I, P> TryFilterEntry<I, P>
 where
+    I: WalkIterator,
     P: FnMut(&Result<DirEntry>) -> bool,
 {
     /// Yields only entries which satisfy the given predicate and skips
@@ -1448,11 +1489,23 @@ where
     /// ```
     ///
     /// You may find it more convenient to use the [`filter_entry`] iterator
-    /// adapter. (See its documentation for the same example functionality as
-    /// above.)
+    /// adapter, or [`try_filter_entry`] if you also need to filter errors.
+    /// (See their documentation for examples.)
     ///
-    /// [`filter_entry`]: #method.filter_entry
+    /// [`filter_entry`]: struct.IntoIter.html#method.filter_entry
+    /// [`try_filter_entry`]: struct.IntoIter.html#method.try_filter_entry
     pub fn skip_current_dir(&mut self) {
+        WalkIterator::skip_current_dir(self)
+    }
+}
+
+impl<I, P> WalkIterator for TryFilterEntry<I, P>
+where
+    I: WalkIterator,
+    P: FnMut(&Result<DirEntry>) -> bool,
+{
+    /// See [`TryFilterEntry::skip_current_dir`](struct.TryFilterEntry.html#method.skip_current_dir).
+    fn skip_current_dir(&mut self) {
         self.it.skip_current_dir();
     }
 }
