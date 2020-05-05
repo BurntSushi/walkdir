@@ -825,7 +825,7 @@ impl IntoIter {
     where
         P: FnMut(&DirEntry) -> bool,
     {
-        FilterEntry { it: self, predicate: predicate }
+        FilterEntry::new(self, predicate)
     }
 
     /// Yields only entries which satisfy the given predicate and skips
@@ -1091,10 +1091,7 @@ impl Iterator for DirList {
 /// [`min_depth`]: struct.WalkDir.html#method.min_depth
 /// [`max_depth`]: struct.WalkDir.html#method.max_depth
 #[derive(Debug)]
-pub struct FilterEntry<I, P> {
-    it: I,
-    predicate: P,
-}
+pub struct FilterEntry<I, P>(TryFilterEntry<I, FilterPredicateAdapter<P>>);
 
 impl<I, P> Iterator for FilterEntry<I, P>
 where
@@ -1110,19 +1107,7 @@ where
     /// If the iterator fails to retrieve the next value, this method returns
     /// an error value. The error will be wrapped in an `Option::Some`.
     fn next(&mut self) -> Option<Result<DirEntry>> {
-        loop {
-            let dent = match self.it.next() {
-                None => return None,
-                Some(result) => itry!(result),
-            };
-            if !(self.predicate)(&dent) {
-                if dent.is_dir() {
-                    self.it.skip_current_dir();
-                }
-                continue;
-            }
-            return Some(Ok(dent));
-        }
+        self.0.next()
     }
 }
 
@@ -1131,6 +1116,13 @@ where
     I: WalkIterator,
     P: FnMut(&DirEntry) -> bool,
 {
+    fn new(it: I, predicate: P) -> Self {
+        Self(TryFilterEntry {
+            it,
+            predicate: FilterPredicateAdapter(predicate),
+        })
+    }
+
     /// Yields only entries which satisfy the given predicate and skips
     /// descending into directories that do not satisfy the given predicate.
     ///
@@ -1180,7 +1172,7 @@ where
     /// [`min_depth`]: struct.WalkDir.html#method.min_depth
     /// [`max_depth`]: struct.WalkDir.html#method.max_depth
     pub fn filter_entry(self, predicate: P) -> FilterEntry<Self, P> {
-        FilterEntry { it: self, predicate: predicate }
+        FilterEntry::new(self, predicate)
     }
 
     /// Yields only entries which satisfy the given predicate and skips
@@ -1290,7 +1282,61 @@ where
 {
     /// See [`FilterEntry::skip_current_dir`](struct.FilterEntry.html#method.skip_current_dir).
     fn skip_current_dir(&mut self) {
-        self.it.skip_current_dir();
+        self.0.skip_current_dir();
+    }
+}
+
+/// Trait for [`TryFilterEntry`] predicates.
+///
+/// The user doesn't need to implement this, and will use [`try_filter_entry`]
+/// method instead.
+///
+/// Note this trait is required because we cannot implement `FnMut`
+/// for custom types yet.
+/// If we could, `FilterPredicateAdapter` would implement `FnMut`
+ // `TryFilterEntry` could just use `FnMut` and not
+/// this trait, and .
+///
+/// [`TryFilterEntry`]: struct.TryFilterEntry.html
+/// [`try_filter_entry`]: struct.WalkDir.html#method.try_filter_entry
+/// [`FilterEntry`]: struct.FilterEntry.html
+/// [`TryFilterPredicate`]: trait.TryFilterPredicate.html
+#[doc(hidden)]
+pub trait TryFilterPredicate {
+    /// Returning `true` will cause the result to be yielded.
+    fn should_yield(&mut self, res: &Result<DirEntry>) -> bool;
+}
+
+impl<F> TryFilterPredicate for F
+where
+    F: FnMut(&Result<DirEntry>) -> bool,
+{
+    fn should_yield(&mut self, res: &Result<DirEntry>) -> bool {
+        self(res)
+    }
+}
+
+/// A wrapper to use a [`FilterEntry`] predicate with [`TryFilterEntry`].
+///
+/// See [`TryFilterPredicate`] for why this is needed.
+///
+/// [`FilterEntry`]: struct.FilterEntry.html
+/// [`TryFilterEntry`]: struct.TryFilterEntry.html
+/// [`TryFilterPredicate`]: trait.TryFilterPredicate.html
+#[derive(Debug)]
+#[doc(hidden)]
+pub struct FilterPredicateAdapter<P>(P);
+
+impl<P> TryFilterPredicate for FilterPredicateAdapter<P>
+where
+    P: FnMut(&DirEntry) -> bool,
+{
+    fn should_yield(&mut self, res: &Result<DirEntry>) -> bool {
+        if let Ok(entry) = res.as_ref() {
+            self.0(entry)
+        } else {
+            false
+        }
     }
 }
 
@@ -1324,7 +1370,7 @@ pub struct TryFilterEntry<I, P> {
 impl<I, P> Iterator for TryFilterEntry<I, P>
 where
     I: WalkIterator,
-    P: FnMut(&Result<DirEntry>) -> bool,
+    P: TryFilterPredicate,
 {
     type Item = Result<DirEntry>;
 
@@ -1337,7 +1383,7 @@ where
     /// The error will be wrapped in an `Option::Some`.
     fn next(&mut self) -> Option<Result<DirEntry>> {
         while let Some(result) = self.it.next() {
-            if !(self.predicate)(&result) {
+            if !self.predicate.should_yield(&result) {
                 if matches!(result.ok(), Some(dent) if dent.is_dir()) {
                     self.it.skip_current_dir();
                 }
@@ -1352,7 +1398,7 @@ where
 impl<I, P> TryFilterEntry<I, P>
 where
     I: WalkIterator,
-    P: FnMut(&Result<DirEntry>) -> bool,
+    P: TryFilterPredicate,
 {
     /// Yields only entries which satisfy the given predicate and skips
     /// descending into directories that do not satisfy the given predicate.
@@ -1404,7 +1450,7 @@ where
     where
         F: FnMut(&DirEntry) -> bool,
     {
-        FilterEntry { it: self, predicate: predicate }
+        FilterEntry::new(self, predicate)
     }
 
     /// Yields only entries which satisfy the given predicate and skips
@@ -1502,7 +1548,7 @@ where
 impl<I, P> WalkIterator for TryFilterEntry<I, P>
 where
     I: WalkIterator,
-    P: FnMut(&Result<DirEntry>) -> bool,
+    P: TryFilterPredicate,
 {
     /// See [`TryFilterEntry::skip_current_dir`](struct.TryFilterEntry.html#method.skip_current_dir).
     fn skip_current_dir(&mut self) {
