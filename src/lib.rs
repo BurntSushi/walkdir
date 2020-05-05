@@ -1303,7 +1303,7 @@ where
 /// Note this trait is required because we cannot implement `FnMut`
 /// for custom types yet.
 /// If we could, `FilterPredicateAdapter` would implement `FnMut`
- // `TryFilterEntry` could just use `FnMut` and not
+/// `TryFilterEntry` could just use `FnMut` and not
 /// this trait, and .
 ///
 /// [`TryFilterEntry`]: struct.TryFilterEntry.html

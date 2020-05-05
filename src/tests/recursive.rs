@@ -884,9 +884,9 @@ fn try_filter_entry() {
     dir.mkdirp("foo/bar/baz/abc");
     dir.mkdirp("quux");
 
-    let wd = WalkDir::new(dir.path())
-        .into_iter()
-        .try_filter_entry(|res| matches!(res, Ok(ent) if ent.file_name() != "baz"));
+    let wd = WalkDir::new(dir.path()).into_iter().try_filter_entry(
+        |res| matches!(res, Ok(ent) if ent.file_name() != "baz"),
+    );
     let r = dir.run_recursive(wd);
     r.assert_no_errors();
 
@@ -911,9 +911,7 @@ fn try_filter_entry_skip_error() {
     let r = dir.run_recursive(wd);
     r.assert_no_errors();
 
-    let expected = vec![
-        dir.path().to_path_buf(),
-    ];
+    let expected = vec![dir.path().to_path_buf()];
     assert_eq!(expected, r.sorted_paths());
 }
 
@@ -948,9 +946,7 @@ fn filter_composition() {
     let r = dir.run_recursive(wd);
     r.assert_no_errors();
 
-    let expected = vec![
-        dir.path().to_path_buf(),
-    ];
+    let expected = vec![dir.path().to_path_buf()];
     assert_eq!(expected, r.sorted_paths());
 }
 
