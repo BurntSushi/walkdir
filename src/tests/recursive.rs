@@ -884,9 +884,9 @@ fn try_filter_entry() {
     dir.mkdirp("foo/bar/baz/abc");
     dir.mkdirp("quux");
 
-    let wd = WalkDir::new(dir.path()).into_iter().try_filter_entry(
-        |res| matches!(res, Ok(ent) if ent.file_name() != "baz"),
-    );
+    let wd = WalkDir::new(dir.path()).into_iter().try_filter_entry(|res| {
+        res.as_ref().map(|ent| ent.file_name() != "baz").unwrap_or(false)
+    });
     let r = dir.run_recursive(wd);
     r.assert_no_errors();
 
