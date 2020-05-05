@@ -111,7 +111,10 @@ symlink loops, efficiently (i.e. without recursing into hidden directories):
 use walkdir::{DirEntry, Result, WalkDir};
 
 fn is_loop_error(res: &Result<DirEntry>) -> bool {
-    matches!(res, Err(e) if e.loop_ancestor().is_some())
+    match res {
+        Err(e) if e.loop_ancestor().is_some() => true,
+        _ => false,
+    }
 }
 
 # fn try_main() -> Result<()> {
@@ -846,7 +849,10 @@ impl IntoIter {
     /// use walkdir::{DirEntry, Result, WalkDir};
     ///
     /// fn is_loop_error(res: &Result<DirEntry>) -> bool {
-    ///     matches!(res, Err(e) if e.loop_ancestor().is_some())
+    ///     match res {
+    ///         Err(e) if e.loop_ancestor().is_some() => true,
+    ///         _ => false,
+    ///     }
     /// }
     ///
     /// # fn try_main() -> Result<()> {
@@ -1193,7 +1199,10 @@ where
     /// use walkdir::{DirEntry, Result, WalkDir};
     ///
     /// fn is_loop_error(res: &Result<DirEntry>) -> bool {
-    ///     matches!(res, Err(e) if e.loop_ancestor().is_some())
+    ///     match res {
+    ///         Err(e) if e.loop_ancestor().is_some() => true,
+    ///         _ => false,
+    ///     }
     /// }
     ///
     /// # fn try_main() -> Result<()> {
@@ -1384,7 +1393,7 @@ where
     fn next(&mut self) -> Option<Result<DirEntry>> {
         while let Some(result) = self.it.next() {
             if !self.predicate.should_yield(&result) {
-                if matches!(result.ok(), Some(dent) if dent.is_dir()) {
+                if result.map(|entry| entry.is_dir()).unwrap_or(false) {
                     self.it.skip_current_dir();
                 }
                 continue;
@@ -1467,7 +1476,10 @@ where
     /// use walkdir::{DirEntry, Result, WalkDir};
     ///
     /// fn is_loop_error(res: &Result<DirEntry>) -> bool {
-    ///     matches!(res, Err(e) if e.loop_ancestor().is_some())
+    ///     match res {
+    ///         Err(e) if e.loop_ancestor().is_some() => true,
+    ///         _ => false,
+    ///     }
     /// }
     ///
     /// # fn try_main() -> Result<()> {
