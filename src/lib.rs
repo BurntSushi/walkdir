@@ -106,7 +106,7 @@ for entry in walker.filter_entry(|e| !is_hidden(e)) {
 #![deny(missing_docs)]
 #![allow(unknown_lints)]
 
-#[cfg(test)]
+#[cfg(doctest)]
 doc_comment::doctest!("../README.md");
 
 use std::cmp::{min, Ordering};
