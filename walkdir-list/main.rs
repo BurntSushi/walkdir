@@ -119,8 +119,16 @@ where
                 continue;
             }
         };
-        write_path(&mut stdout, dent.path())?;
-        stdout.write_all(b"\n")?;
+
+        if dent.is_dir() {
+            if !args.justfiles {
+                write_path(&mut stdout, dent.path())?;
+                stdout.write_all(b"\n")?;
+            }
+        } else {
+            write_path(&mut stdout, dent.path())?;
+            stdout.write_all(b"\n")?;
+        }
     }
     Ok(())
 }
@@ -145,6 +153,7 @@ where
                 continue;
             }
         };
+
         stdout.write_all("  ".repeat(dent.depth()).as_bytes())?;
         write_os_str(&mut stdout, dent.file_name())?;
         stdout.write_all(b"\n")?;
@@ -166,6 +175,7 @@ struct Args {
     same_file_system: bool,
     timeit: bool,
     count: bool,
+    justfiles: bool,
 }
 
 impl Args {
@@ -243,6 +253,11 @@ impl Args {
                     .short("c")
                     .help("Print only a total count of all file paths."),
             )
+            .arg(Arg::with_name("justfiles")
+                 .long("justfiles")
+                 .short("j")
+                 .help("Print only the file paths like find type f"),
+            )
             .get_matches();
 
         let dirs = match parsed.values_of_os("dirs") {
@@ -262,6 +277,7 @@ impl Args {
             same_file_system: parsed.is_present("same-file-system"),
             timeit: parsed.is_present("timeit"),
             count: parsed.is_present("count"),
+            justfiles: parsed.is_present("justfiles"),
         })
     }
 
