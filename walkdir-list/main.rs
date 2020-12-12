@@ -255,9 +255,9 @@ impl Args {
             )
             .arg(
                 Arg::with_name("justfiles")
-                 .long("justfiles")
-                 .short("j")
-                 .help("Print only the file paths like find type f"),
+                    .long("justfiles")
+                    .short("j")
+                    .help("Print only the file paths like find type f"),
             )
             .get_matches();
 
