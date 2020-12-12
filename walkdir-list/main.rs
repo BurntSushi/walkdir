@@ -253,7 +253,8 @@ impl Args {
                     .short("c")
                     .help("Print only a total count of all file paths."),
             )
-            .arg(Arg::with_name("justfiles")
+            .arg(
+                Arg::with_name("justfiles")
                  .long("justfiles")
                  .short("j")
                  .help("Print only the file paths like find type f"),
