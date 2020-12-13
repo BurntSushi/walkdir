@@ -13,12 +13,12 @@
 
 use std::error::Error;
 use std::ffi::OsStr;
+use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 use std::result;
 use std::time::Instant;
-use std::fs;
 
 use bstr::BString;
 use walkdir::WalkDir;
@@ -127,7 +127,6 @@ where
                 stdout.write_all(b"\n")?;
             }
         } else {
-
             // if it's a symlink ensure it points to a file before printing the path
             if dent.file_type().is_symlink() {
                 let slpath = fs::read_link(dent.path())?;
@@ -135,13 +134,11 @@ where
                 let slmetadata = fs::metadata(&slpath)?;
                 // println!("slmetadata:<<{:?}>>",slmetadata);
                 if slmetadata.file_type().is_file() {
-                    //println!("is_file():<<{:?}>> is_symlink():<<{:?}>> path:<<{:?}>> points to real file found at path:<<{:?}>>",dent.file_type().is_file(),
- dent.file_type().is_symlink(), dent.path(), slpath);
+                    //println!("is_file():<<{:?}>> is_symlink():<<{:?}>> path:<<{:?}>> points to real file found at path:<<{:?}>>",dent.file_type().is_file(), dent.file_type().is_symlink(), dent.path(), slpath);
                     write_path(&mut stdout, dent.path())?;
                     stdout.write_all(b"\n")?;
                 }
             }
-            
             // ensure it's a file before printing it's path
             if dent.file_type().is_file() {
                 //println!("is_file():<<{:?}>> is_symlink():<<{:?}>> path:<<{:?}>>",dent.file_type().is_file(), dent.file_type().is_symlink(), dent.path());
@@ -195,7 +192,7 @@ struct Args {
     same_file_system: bool,
     timeit: bool,
     count: bool,
-    justfiles: bool,
+    files: bool,
 }
 
 impl Args {
@@ -274,9 +271,9 @@ impl Args {
                     .help("Print only a total count of all file paths."),
             )
             .arg(
-                Arg::with_name("justfiles")
-                    .long("justfiles")
-                    .short("j")
+                Arg::with_name("files")
+                    .long("files")
+                    .short("f")
                     .help("Print only the file paths like find type f"),
             )
             .get_matches();
@@ -298,7 +295,7 @@ impl Args {
             same_file_system: parsed.is_present("same-file-system"),
             timeit: parsed.is_present("timeit"),
             count: parsed.is_present("count"),
-            justfiles: parsed.is_present("justfiles"),
+            files: parsed.is_present("files"),
         })
     }
 
