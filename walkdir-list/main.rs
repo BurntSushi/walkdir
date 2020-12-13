@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::result;
 use std::time::Instant;
+use std::fs;
 
 use bstr::BString;
 use walkdir::WalkDir;
@@ -120,14 +121,33 @@ where
             }
         };
 
-        if dent.is_dir() {
-            if !args.justfiles {
+        if dent.file_type().is_dir() {
+            if !args.files {
                 write_path(&mut stdout, dent.path())?;
                 stdout.write_all(b"\n")?;
             }
         } else {
-            write_path(&mut stdout, dent.path())?;
-            stdout.write_all(b"\n")?;
+
+            // if it's a symlink ensure it points to a file before printing the path
+            if dent.file_type().is_symlink() {
+                let slpath = fs::read_link(dent.path())?;
+                // println!("slpath:<<{:?}>>",slpath);
+                let slmetadata = fs::metadata(&slpath)?;
+                // println!("slmetadata:<<{:?}>>",slmetadata);
+                if slmetadata.file_type().is_file() {
+                    //println!("is_file():<<{:?}>> is_symlink():<<{:?}>> path:<<{:?}>> points to real file found at path:<<{:?}>>",dent.file_type().is_file(),
+ dent.file_type().is_symlink(), dent.path(), slpath);
+                    write_path(&mut stdout, dent.path())?;
+                    stdout.write_all(b"\n")?;
+                }
+            }
+            
+            // ensure it's a file before printing it's path
+            if dent.file_type().is_file() {
+                //println!("is_file():<<{:?}>> is_symlink():<<{:?}>> path:<<{:?}>>",dent.file_type().is_file(), dent.file_type().is_symlink(), dent.path());
+                write_path(&mut stdout, dent.path())?;
+                stdout.write_all(b"\n")?;
+            }
         }
     }
     Ok(())
