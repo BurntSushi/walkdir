@@ -879,6 +879,78 @@ fn filter_entry() {
 }
 
 #[test]
+fn try_filter_entry() {
+    let dir = Dir::tmp();
+    dir.mkdirp("foo/bar/baz/abc");
+    dir.mkdirp("quux");
+
+    let wd = WalkDir::new(dir.path()).into_iter().try_filter_entry(|res| {
+        res.as_ref().map(|ent| ent.file_name() != "baz").unwrap_or(false)
+    });
+    let r = dir.run_recursive(wd);
+    r.assert_no_errors();
+
+    let expected = vec![
+        dir.path().to_path_buf(),
+        dir.join("foo"),
+        dir.join("foo").join("bar"),
+        dir.join("quux"),
+    ];
+    assert_eq!(expected, r.sorted_paths());
+}
+
+#[test]
+fn try_filter_entry_skip_error() {
+    let dir = Dir::tmp();
+    dir.symlink_dir("a", "a");
+
+    let wd = WalkDir::new(dir.path())
+        .follow_links(true) // to cause the error
+        .into_iter()
+        .try_filter_entry(|res| res.is_ok());
+    let r = dir.run_recursive(wd);
+    r.assert_no_errors();
+
+    let expected = vec![dir.path().to_path_buf()];
+    assert_eq!(expected, r.sorted_paths());
+}
+
+#[test]
+fn filter_composition() {
+    let dir = Dir::tmp();
+    dir.mkdirp("foo/bar/baz/abc");
+    dir.mkdirp("quux");
+    dir.symlink_dir("a", "a");
+
+    let wd = WalkDir::new(dir.path())
+        .follow_links(true) // to cause a loop error
+        .into_iter()
+        .filter_entry(|ent| ent.file_name() != "baz")
+        .try_filter_entry(|res| res.is_ok()); // filter out the error
+    let r = dir.run_recursive(wd);
+    r.assert_no_errors();
+
+    let expected = vec![
+        dir.path().to_path_buf(),
+        dir.join("foo"),
+        dir.join("foo").join("bar"),
+        dir.join("quux"),
+    ];
+    assert_eq!(expected, r.sorted_paths());
+    let dir = Dir::tmp();
+
+    let wd = WalkDir::new(dir.path())
+        .follow_links(true) // to cause the error
+        .into_iter()
+        .try_filter_entry(|res| res.is_ok());
+    let r = dir.run_recursive(wd);
+    r.assert_no_errors();
+
+    let expected = vec![dir.path().to_path_buf()];
+    assert_eq!(expected, r.sorted_paths());
+}
+
+#[test]
 fn sort() {
     let dir = Dir::tmp();
     dir.mkdirp("foo/bar/baz/abc");

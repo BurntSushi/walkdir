@@ -101,6 +101,32 @@ for entry in walker.filter_entry(|e| !is_hidden(e)) {
 ```
 
 [`filter_entry`]: struct.IntoIter.html#method.filter_entry
+
+# Example: skip symlink loop errors
+
+This uses the [`try_filter_entry`] iterator adapter to avoid yielding errors for
+symlink loops, efficiently (i.e. without recursing into hidden directories):
+
+```no_run
+use walkdir::{DirEntry, Result, WalkDir};
+
+fn is_loop_error(res: &Result<DirEntry>) -> bool {
+    match res {
+        Err(e) if e.loop_ancestor().is_some() => true,
+        _ => false,
+    }
+}
+
+# fn try_main() -> Result<()> {
+let walker = WalkDir::new("foo").follow_links(true).into_iter();
+for entry in walker.try_filter_entry(|res| !is_loop_error(res)) {
+    println!("{}", entry?.path().display());
+}
+# Ok(())
+# }
+```
+
+[`try_filter_entry`]: struct.IntoIter.html#method.try_filter_entry
 */
 
 #![deny(missing_docs)]
@@ -492,6 +518,23 @@ impl IntoIterator for WalkDir {
     }
 }
 
+/// Common trait for [`IntoIter`], [`FilterEntry`], and [`TryFilterEntry`].
+///
+/// This allows composition while still being efficient at skipping directories.
+///
+/// Note hidden from docs because each struct has also has a public method that is documented.
+/// Having those methods also keeps the API backwards compatible as the trait doesn't need to
+/// be in scope to use them.
+///
+/// [`IntoIter`]: struct.IntoIter.html
+/// [`FilterEntry`]: struct.FilterEntry.html
+/// [`TryFilterEntry`]: struct.TryFilterEntry.html
+#[doc(hidden)]
+pub trait WalkIterator: Iterator<Item = Result<DirEntry>> {
+    /// See [`IntoIter::skip_current_dir`](struct.IntoIter.html#method.skip_current_dir).
+    fn skip_current_dir(&mut self);
+}
+
 /// An iterator for recursively descending into a directory.
 ///
 /// A value with this type must be constructed with the [`WalkDir`] type, which
@@ -675,6 +718,15 @@ impl Iterator for IntoIter {
     }
 }
 
+impl WalkIterator for IntoIter {
+    /// See [`WalkIterator::skip_current_dir`](struct.WalkIterator.html#method.skip_current_dir).
+    fn skip_current_dir(&mut self) {
+        if !self.stack_list.is_empty() {
+            self.pop();
+        }
+    }
+}
+
 impl IntoIter {
     /// Skips the current directory.
     ///
@@ -715,14 +767,13 @@ impl IntoIter {
     /// ```
     ///
     /// You may find it more convenient to use the [`filter_entry`] iterator
-    /// adapter. (See its documentation for the same example functionality as
-    /// above.)
+    /// adapter, or [`try_filter_entry`] if you also need to filter errors.
+    /// (See their documentation for examples.)
     ///
-    /// [`filter_entry`]: #method.filter_entry
+    /// [`filter_entry`]: struct.IntoIter.html#method.filter_entry
+    /// [`try_filter_entry`]: struct.IntoIter.html#method.try_filter_entry
     pub fn skip_current_dir(&mut self) {
-        if !self.stack_list.is_empty() {
-            self.pop();
-        }
+        WalkIterator::skip_current_dir(self)
     }
 
     /// Yields only entries which satisfy the given predicate and skips
@@ -759,6 +810,7 @@ impl IntoIter {
     ///
     /// Note that the iterator will still yield errors for reading entries that
     /// may not satisfy the predicate.
+    /// If you want to also filter errors, use [`try_filter_entry`].
     ///
     /// Note that entries skipped with [`min_depth`] and [`max_depth`] are not
     /// passed to this predicate.
@@ -769,13 +821,68 @@ impl IntoIter {
     /// descended into).
     ///
     /// [`skip_current_dir`]: #method.skip_current_dir
+    /// [`try_filter_entry`]: #method.try_filter_entry
     /// [`min_depth`]: struct.WalkDir.html#method.min_depth
     /// [`max_depth`]: struct.WalkDir.html#method.max_depth
     pub fn filter_entry<P>(self, predicate: P) -> FilterEntry<Self, P>
     where
         P: FnMut(&DirEntry) -> bool,
     {
-        FilterEntry { it: self, predicate: predicate }
+        FilterEntry::new(self, predicate)
+    }
+
+    /// Yields only entries which satisfy the given predicate and skips
+    /// descending into directories that do not satisfy the given predicate.
+    ///
+    /// The difference with [`filter_entry`] is that here the predicate takes
+    /// a `&Result<DirEntry>`, making it possible to make the iterator
+    /// ignore errors in addition to entries.
+    ///
+    /// The predicate is applied to all entries. If the predicate is
+    /// true, iteration carries on as normal. If the predicate is false, the
+    /// entry is ignored and if it is a directory, it is not descended into.
+    ///
+    /// This is often more convenient to use than [`skip_current_dir`]. For
+    /// example, to ignore any symlink loop error:
+    ///
+    /// ```no_run
+    /// use walkdir::{DirEntry, Result, WalkDir};
+    ///
+    /// fn is_loop_error(res: &Result<DirEntry>) -> bool {
+    ///     match res {
+    ///         Err(e) if e.loop_ancestor().is_some() => true,
+    ///         _ => false,
+    ///     }
+    /// }
+    ///
+    /// # fn try_main() -> Result<()> {
+    /// for entry in WalkDir::new("foo")
+    ///                      .follow_links(true)
+    ///                      .into_iter()
+    ///                      .try_filter_entry(|res| !is_loop_error(res)) {
+    ///     println!("{}", entry?.path().display());
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// Note that entries skipped with [`min_depth`] and [`max_depth`] are not
+    /// passed to this predicate.
+    ///
+    /// Note that if the iterator has `contents_first` enabled, then this
+    /// method is no different than calling the standard `Iterator::filter`
+    /// method (because directory entries are yielded after they've been
+    /// descended into).
+    ///
+    /// [`filter_entry`]: #method.filter_entry
+    /// [`skip_current_dir`]: #method.skip_current_dir
+    /// [`min_depth`]: struct.WalkDir.html#method.min_depth
+    /// [`max_depth`]: struct.WalkDir.html#method.max_depth
+    pub fn try_filter_entry<P>(self, predicate: P) -> TryFilterEntry<Self, P>
+    where
+        P: FnMut(&Result<DirEntry>) -> bool,
+    {
+        TryFilterEntry { it: self, predicate: predicate }
     }
 
     fn handle_entry(
@@ -969,7 +1076,7 @@ impl Iterator for DirList {
 /// A recursive directory iterator that skips entries.
 ///
 /// Values of this type are created by calling [`.filter_entry()`] on an
-/// `IntoIter`, which is formed by calling [`.into_iter()`] on a `WalkDir`.
+/// [`IntoIter`], which is formed by calling [`.into_iter()`] on a [`WalkDir`].
 ///
 /// Directories that fail the predicate `P` are skipped. Namely, they are
 /// never yielded and never descended into.
@@ -984,17 +1091,17 @@ impl Iterator for DirList {
 /// predicate, which is usually `FnMut(&DirEntry) -> bool`.
 ///
 /// [`.filter_entry()`]: struct.IntoIter.html#method.filter_entry
+/// [`IntoIter`]: struct.IntoIter.html
 /// [`.into_iter()`]: struct.WalkDir.html#into_iter.v
+/// [`WalkDir`]: struct.WalkDir.html
 /// [`min_depth`]: struct.WalkDir.html#method.min_depth
 /// [`max_depth`]: struct.WalkDir.html#method.max_depth
 #[derive(Debug)]
-pub struct FilterEntry<I, P> {
-    it: I,
-    predicate: P,
-}
+pub struct FilterEntry<I, P>(TryFilterEntry<I, FilterPredicateAdapter<P>>);
 
-impl<P> Iterator for FilterEntry<IntoIter, P>
+impl<I, P> Iterator for FilterEntry<I, P>
 where
+    I: WalkIterator,
     P: FnMut(&DirEntry) -> bool,
 {
     type Item = Result<DirEntry>;
@@ -1006,25 +1113,301 @@ where
     /// If the iterator fails to retrieve the next value, this method returns
     /// an error value. The error will be wrapped in an `Option::Some`.
     fn next(&mut self) -> Option<Result<DirEntry>> {
-        loop {
-            let dent = match self.it.next() {
-                None => return None,
-                Some(result) => itry!(result),
-            };
-            if !(self.predicate)(&dent) {
-                if dent.is_dir() {
-                    self.it.skip_current_dir();
-                }
-                continue;
-            }
-            return Some(Ok(dent));
+        self.0.next()
+    }
+}
+
+impl<I, P> FilterEntry<I, P>
+where
+    I: WalkIterator,
+    P: FnMut(&DirEntry) -> bool,
+{
+    fn new(it: I, predicate: P) -> Self {
+        Self(TryFilterEntry {
+            it,
+            predicate: FilterPredicateAdapter(predicate),
+        })
+    }
+
+    /// Yields only entries which satisfy the given predicate and skips
+    /// descending into directories that do not satisfy the given predicate.
+    ///
+    /// The predicate is applied to all entries. If the predicate is
+    /// true, iteration carries on as normal. If the predicate is false, the
+    /// entry is ignored and if it is a directory, it is not descended into.
+    ///
+    /// This is often more convenient to use than [`skip_current_dir`]. For
+    /// example, to skip hidden files and directories efficiently on unix
+    /// systems:
+    ///
+    /// ```no_run
+    /// use walkdir::{DirEntry, WalkDir};
+    /// # use walkdir::Error;
+    ///
+    /// fn is_hidden(entry: &DirEntry) -> bool {
+    ///     entry.file_name()
+    ///          .to_str()
+    ///          .map(|s| s.starts_with("."))
+    ///          .unwrap_or(false)
+    /// }
+    ///
+    /// # fn try_main() -> Result<(), Error> {
+    /// for entry in WalkDir::new("foo")
+    ///                      .into_iter()
+    ///                      .filter_entry(|e| !is_hidden(e)) {
+    ///     println!("{}", entry?.path().display());
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// Note that the iterator will still yield errors for reading entries that
+    /// may not satisfy the predicate.
+    /// If you want to also filter errors, use [`try_filter_entry`].
+    ///
+    /// Note that entries skipped with [`min_depth`] and [`max_depth`] are not
+    /// passed to this predicate.
+    ///
+    /// Note that if the iterator has `contents_first` enabled, then this
+    /// method is no different than calling the standard `Iterator::filter`
+    /// method (because directory entries are yielded after they've been
+    /// descended into).
+    ///
+    /// [`skip_current_dir`]: #method.skip_current_dir
+    /// [`try_filter_entry`]: #method.try_filter_entry
+    /// [`min_depth`]: struct.WalkDir.html#method.min_depth
+    /// [`max_depth`]: struct.WalkDir.html#method.max_depth
+    pub fn filter_entry(self, predicate: P) -> FilterEntry<Self, P> {
+        FilterEntry::new(self, predicate)
+    }
+
+    /// Yields only entries which satisfy the given predicate and skips
+    /// descending into directories that do not satisfy the given predicate.
+    ///
+    /// The difference with [`filter_entry`] is that here the predicate takes
+    /// a `&Result<DirEntry>`, making it possible to make the iterator
+    /// ignore errors in addition to entries.
+    ///
+    /// The predicate is applied to all entries. If the predicate is
+    /// true, iteration carries on as normal. If the predicate is false, the
+    /// entry is ignored and if it is a directory, it is not descended into.
+    ///
+    /// This is often more convenient to use than [`skip_current_dir`]. For
+    /// example, to ignore any symlink loop error:
+    ///
+    /// ```no_run
+    /// use walkdir::{DirEntry, Result, WalkDir};
+    ///
+    /// fn is_loop_error(res: &Result<DirEntry>) -> bool {
+    ///     match res {
+    ///         Err(e) if e.loop_ancestor().is_some() => true,
+    ///         _ => false,
+    ///     }
+    /// }
+    ///
+    /// # fn try_main() -> Result<()> {
+    /// for entry in WalkDir::new("foo")
+    ///                      .follow_links(true)
+    ///                      .into_iter()
+    ///                      .try_filter_entry(|res| !is_loop_error(res)) {
+    ///     println!("{}", entry?.path().display());
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// Note that entries skipped with [`min_depth`] and [`max_depth`] are not
+    /// passed to this predicate.
+    ///
+    /// Note that if the iterator has `contents_first` enabled, then this
+    /// method is no different than calling the standard `Iterator::filter`
+    /// method (because directory entries are yielded after they've been
+    /// descended into).
+    ///
+    /// [`filter_entry`]: #method.filter_entry
+    /// [`skip_current_dir`]: #method.skip_current_dir
+    /// [`min_depth`]: struct.WalkDir.html#method.min_depth
+    /// [`max_depth`]: struct.WalkDir.html#method.max_depth
+    pub fn try_filter_entry<F>(self, predicate: F) -> TryFilterEntry<Self, F>
+    where
+        F: FnMut(&Result<DirEntry>) -> bool,
+    {
+        TryFilterEntry { it: self, predicate: predicate }
+    }
+
+    /// Skips the current directory.
+    ///
+    /// This causes the iterator to stop traversing the contents of the least
+    /// recently yielded directory. This means any remaining entries in that
+    /// directory will be skipped (including sub-directories).
+    ///
+    /// Note that the ergonomics of this method are questionable since it
+    /// borrows the iterator mutably. Namely, you must write out the looping
+    /// condition manually. For example, to skip hidden entries efficiently on
+    /// unix systems:
+    ///
+    /// ```no_run
+    /// use walkdir::{DirEntry, WalkDir};
+    ///
+    /// fn is_hidden(entry: &DirEntry) -> bool {
+    ///     entry.file_name()
+    ///          .to_str()
+    ///          .map(|s| s.starts_with("."))
+    ///          .unwrap_or(false)
+    /// }
+    ///
+    /// let mut it = WalkDir::new("foo").into_iter();
+    /// loop {
+    ///     let entry = match it.next() {
+    ///         None => break,
+    ///         Some(Err(err)) => panic!("ERROR: {}", err),
+    ///         Some(Ok(entry)) => entry,
+    ///     };
+    ///     if is_hidden(&entry) {
+    ///         if entry.file_type().is_dir() {
+    ///             it.skip_current_dir();
+    ///         }
+    ///         continue;
+    ///     }
+    ///     println!("{}", entry.path().display());
+    /// }
+    /// ```
+    ///
+    /// You may find it more convenient to use the [`filter_entry`] iterator
+    /// adapter, or [`try_filter_entry`] if you also need to filter errors.
+    /// (See their documentation for examples.)
+    ///
+    /// [`filter_entry`]: struct.IntoIter.html#method.filter_entry
+    /// [`try_filter_entry`]: struct.IntoIter.html#method.try_filter_entry
+    pub fn skip_current_dir(&mut self) {
+        WalkIterator::skip_current_dir(self)
+    }
+}
+
+impl<I, P> WalkIterator for FilterEntry<I, P>
+where
+    I: WalkIterator,
+    P: FnMut(&DirEntry) -> bool,
+{
+    /// See [`FilterEntry::skip_current_dir`](struct.FilterEntry.html#method.skip_current_dir).
+    fn skip_current_dir(&mut self) {
+        self.0.skip_current_dir();
+    }
+}
+
+/// Trait for [`TryFilterEntry`] predicates.
+///
+/// The user doesn't need to implement this, and will use [`try_filter_entry`]
+/// method instead.
+///
+/// Note this trait is required because we cannot implement `FnMut`
+/// for custom types yet.
+/// If we could, `FilterPredicateAdapter` would implement `FnMut`
+/// `TryFilterEntry` could just use `FnMut` and not
+/// this trait, and .
+///
+/// [`TryFilterEntry`]: struct.TryFilterEntry.html
+/// [`try_filter_entry`]: struct.WalkDir.html#method.try_filter_entry
+/// [`FilterEntry`]: struct.FilterEntry.html
+/// [`TryFilterPredicate`]: trait.TryFilterPredicate.html
+#[doc(hidden)]
+pub trait TryFilterPredicate {
+    /// Returning `true` will cause the result to be yielded.
+    fn should_yield(&mut self, res: &Result<DirEntry>) -> bool;
+}
+
+impl<F> TryFilterPredicate for F
+where
+    F: FnMut(&Result<DirEntry>) -> bool,
+{
+    fn should_yield(&mut self, res: &Result<DirEntry>) -> bool {
+        self(res)
+    }
+}
+
+/// A wrapper to use a [`FilterEntry`] predicate with [`TryFilterEntry`].
+///
+/// See [`TryFilterPredicate`] for why this is needed.
+///
+/// [`FilterEntry`]: struct.FilterEntry.html
+/// [`TryFilterEntry`]: struct.TryFilterEntry.html
+/// [`TryFilterPredicate`]: trait.TryFilterPredicate.html
+#[derive(Debug)]
+#[doc(hidden)]
+pub struct FilterPredicateAdapter<P>(P);
+
+impl<P> TryFilterPredicate for FilterPredicateAdapter<P>
+where
+    P: FnMut(&DirEntry) -> bool,
+{
+    fn should_yield(&mut self, res: &Result<DirEntry>) -> bool {
+        if let Ok(entry) = res.as_ref() {
+            self.0(entry)
+        } else {
+            false
         }
     }
 }
 
-impl<P> FilterEntry<IntoIter, P>
+/// A recursive directory iterator that skips entries.
+///
+/// Values of this type are created by calling [`.try_filter_entry()`] on an
+/// [`IntoIter`], which is formed by calling [`.into_iter()`] on a [`WalkDir`].
+///
+/// Directories that fail the predicate `P` are skipped. Namely, they are
+/// never yielded and never descended into.
+/// The predicate is also used to determine if errors should be yielded.
+///
+/// Entries that are skipped with the [`min_depth`] and [`max_depth`] options
+/// are not passed through this filter.
+///
+/// Type parameter `I` refers to the underlying iterator and `P` refers to the
+/// predicate, which is usually `FnMut(&Result<DirEntry>) -> bool`.
+///
+/// [`.try_filter_entry()`]: struct.IntoIter.html#method.try_filter_entry
+/// [`IntoIter`]: struct.IntoIter.html
+/// [`.into_iter()`]: struct.WalkDir.html#into_iter.v
+/// [`WalkDir`]: struct.WalkDir.html
+/// [`min_depth`]: struct.WalkDir.html#method.min_depth
+/// [`max_depth`]: struct.WalkDir.html#method.max_depth
+#[derive(Debug)]
+pub struct TryFilterEntry<I, P> {
+    it: I,
+    predicate: P,
+}
+
+impl<I, P> Iterator for TryFilterEntry<I, P>
 where
-    P: FnMut(&DirEntry) -> bool,
+    I: WalkIterator,
+    P: TryFilterPredicate,
+{
+    type Item = Result<DirEntry>;
+
+    /// Advances the iterator and returns the next value.
+    ///
+    /// # Errors
+    ///
+    /// If the iterator fails to retrieve the next value, this method returns
+    /// an error value only if the predicate returns true.
+    /// The error will be wrapped in an `Option::Some`.
+    fn next(&mut self) -> Option<Result<DirEntry>> {
+        while let Some(result) = self.it.next() {
+            if !self.predicate.should_yield(&result) {
+                if result.map(|entry| entry.is_dir()).unwrap_or(false) {
+                    self.it.skip_current_dir();
+                }
+                continue;
+            }
+            return Some(result);
+        }
+        None
+    }
+}
+
+impl<I, P> TryFilterEntry<I, P>
+where
+    I: WalkIterator,
+    P: TryFilterPredicate,
 {
     /// Yields only entries which satisfy the given predicate and skips
     /// descending into directories that do not satisfy the given predicate.
@@ -1072,8 +1455,57 @@ where
     /// [`skip_current_dir`]: #method.skip_current_dir
     /// [`min_depth`]: struct.WalkDir.html#method.min_depth
     /// [`max_depth`]: struct.WalkDir.html#method.max_depth
-    pub fn filter_entry(self, predicate: P) -> FilterEntry<Self, P> {
-        FilterEntry { it: self, predicate: predicate }
+    pub fn filter_entry<F>(self, predicate: F) -> FilterEntry<Self, F>
+    where
+        F: FnMut(&DirEntry) -> bool,
+    {
+        FilterEntry::new(self, predicate)
+    }
+
+    /// Yields only entries which satisfy the given predicate and skips
+    /// descending into directories that do not satisfy the given predicate.
+    ///
+    /// The predicate is applied to all entries. If the predicate is
+    /// true, iteration carries on as normal. If the predicate is false, the
+    /// entry is ignored and if it is a directory, it is not descended into.
+    ///
+    /// This is often more convenient to use than [`skip_current_dir`]. For
+    /// example, to ignore any symlink loop error:
+    ///
+    /// ```no_run
+    /// use walkdir::{DirEntry, Result, WalkDir};
+    ///
+    /// fn is_loop_error(res: &Result<DirEntry>) -> bool {
+    ///     match res {
+    ///         Err(e) if e.loop_ancestor().is_some() => true,
+    ///         _ => false,
+    ///     }
+    /// }
+    ///
+    /// # fn try_main() -> Result<()> {
+    /// for entry in WalkDir::new("foo")
+    ///                      .follow_links(true)
+    ///                      .into_iter()
+    ///                      .try_filter_entry(|res| !is_loop_error(res)) {
+    ///     println!("{}", entry?.path().display());
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// Note that entries skipped with [`min_depth`] and [`max_depth`] are not
+    /// passed to this predicate.
+    ///
+    /// Note that if the iterator has `contents_first` enabled, then this
+    /// method is no different than calling the standard `Iterator::filter`
+    /// method (because directory entries are yielded after they've been
+    /// descended into).
+    ///
+    /// [`skip_current_dir`]: #method.skip_current_dir
+    /// [`min_depth`]: struct.WalkDir.html#method.min_depth
+    /// [`max_depth`]: struct.WalkDir.html#method.max_depth
+    pub fn try_filter_entry(self, predicate: P) -> TryFilterEntry<Self, P> {
+        TryFilterEntry { it: self, predicate: predicate }
     }
 
     /// Skips the current directory.
@@ -1115,11 +1547,23 @@ where
     /// ```
     ///
     /// You may find it more convenient to use the [`filter_entry`] iterator
-    /// adapter. (See its documentation for the same example functionality as
-    /// above.)
+    /// adapter, or [`try_filter_entry`] if you also need to filter errors.
+    /// (See their documentation for examples.)
     ///
-    /// [`filter_entry`]: #method.filter_entry
+    /// [`filter_entry`]: struct.IntoIter.html#method.filter_entry
+    /// [`try_filter_entry`]: struct.IntoIter.html#method.try_filter_entry
     pub fn skip_current_dir(&mut self) {
+        WalkIterator::skip_current_dir(self)
+    }
+}
+
+impl<I, P> WalkIterator for TryFilterEntry<I, P>
+where
+    I: WalkIterator,
+    P: TryFilterPredicate,
+{
+    /// See [`TryFilterEntry::skip_current_dir`](struct.TryFilterEntry.html#method.skip_current_dir).
+    fn skip_current_dir(&mut self) {
         self.it.skip_current_dir();
     }
 }
