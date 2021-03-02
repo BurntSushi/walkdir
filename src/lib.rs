@@ -377,7 +377,7 @@ impl WalkDir {
         self
     }
 
-    /// Set a function for sorting directory entries.
+    /// Set a function for sorting directory entries with a comparator function.
     ///
     /// If a compare function is set, the resulting iterator will return all
     /// paths in sorted order. The compare function will be called to compare
@@ -396,6 +396,27 @@ impl WalkDir {
     {
         self.opts.sorter = Some(Box::new(cmp));
         self
+    }
+
+    /// Set a function for sorting directory entries with a key extraction function.
+    ///
+    /// If a compare function is set, the resulting iterator will return all
+    /// paths in sorted order. The compare function will be called to compare
+    /// entries from the same directory.
+    ///
+    /// ```rust,no-run
+    /// use std::cmp;
+    /// use std::ffi::OsString;
+    /// use walkdir::WalkDir;
+    ///
+    /// WalkDir::new("foo").sort_by_key(|a| a.file_name().to_owned());
+    /// ```
+    pub fn sort_by_key<K, F>(self, mut cmp: F) -> Self
+    where
+        F: FnMut(&DirEntry) -> K + Send + Sync + 'static,
+        K: Ord,
+    {
+        self.sort_by(move |a, b| cmp(a).cmp(&cmp(b)))
     }
 
     /// Yield a directory's contents before the directory itself. By default,
