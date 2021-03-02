@@ -419,6 +419,19 @@ impl WalkDir {
         self.sort_by(move |a, b| cmp(a).cmp(&cmp(b)))
     }
 
+    /// Sort directory entries by file name, to ensure a deterministic order.
+    ///
+    /// This is a convenience function for calling `Self::sort_by()`.
+    ///
+    /// ```rust,no-run
+    /// use walkdir::WalkDir;
+    ///
+    /// WalkDir::new("foo").sort_by_file_name();
+    /// ```
+    pub fn sort_by_file_name(self) -> Self {
+        self.sort_by(|a, b| a.file_name().cmp(b.file_name()))
+    }
+
     /// Yield a directory's contents before the directory itself. By default,
     /// this is disabled.
     ///
