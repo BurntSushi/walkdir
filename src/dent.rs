@@ -357,6 +357,12 @@ impl fmt::Debug for DirEntry {
     }
 }
 
+impl From<DirEntry> for PathBuf {
+    fn from(de: DirEntry) -> Self {
+        de.into_path()
+    }
+}
+
 /// Unix-specific extension methods for `walkdir::DirEntry`
 #[cfg(unix)]
 pub trait DirEntryExt {
