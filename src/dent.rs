@@ -363,6 +363,12 @@ impl From<DirEntry> for PathBuf {
     }
 }
 
+impl AsRef<Path> for DirEntry {
+    fn as_ref(&self) -> &Path {
+        self.path()
+    }
+}
+
 /// Unix-specific extension methods for `walkdir::DirEntry`
 #[cfg(unix)]
 pub trait DirEntryExt {
