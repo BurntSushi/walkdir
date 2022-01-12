@@ -237,6 +237,7 @@ pub struct WalkDir {
 
 struct WalkDirOptions {
     follow_links: bool,
+    yield_link_on_error: bool,
     max_open: usize,
     min_depth: usize,
     max_depth: usize,
@@ -287,6 +288,7 @@ impl WalkDir {
         WalkDir {
             opts: WalkDirOptions {
                 follow_links: false,
+                yield_link_on_error: false,
                 max_open: 10,
                 min_depth: 0,
                 max_depth: ::std::usize::MAX,
@@ -341,6 +343,16 @@ impl WalkDir {
     /// [`DirEntry`]: struct.DirEntry.html
     pub fn follow_links(mut self, yes: bool) -> Self {
         self.opts.follow_links = yes;
+        self
+    }
+
+    /// Yield link entries that cannot be followed. By default, this is
+    /// disabled.
+    ///
+    /// When `yes` is true, and a symlink cannot be followed, after the error is
+    /// yielded, the link itself (not its target) will be yielded.
+    pub fn yield_link_on_error(mut self, yes: bool) -> Self {
+        self.opts.yield_link_on_error = yes;
         self
     }
 
@@ -523,6 +535,7 @@ impl IntoIterator for WalkDir {
             oldest_opened: 0,
             depth: 0,
             deferred_dirs: vec![],
+            last_failed_link: None,
             root_device: None,
         }
     }
@@ -573,6 +586,8 @@ pub struct IntoIter {
     /// yielded after their contents has been fully yielded. This is only
     /// used when `contents_first` is enabled.
     deferred_dirs: Vec<DirEntry>,
+    /// The saved link entry that could not be followed, to be yielded next.
+    last_failed_link: Option<DirEntry>,
     /// The device of the root file path when the first call to `next` was
     /// made.
     ///
@@ -669,7 +684,14 @@ impl Iterator for IntoIter {
                 self.root_device = Some(itry!(result));
             }
             let dent = itry!(DirEntry::from_path(0, start, false));
-            if let Some(result) = self.handle_entry(dent) {
+            if let Some(result) =
+                self.handle_entry(dent, self.opts.follow_links)
+            {
+                return Some(result);
+            }
+        }
+        if let Some(dent) = self.last_failed_link.take() {
+            if let Some(result) = self.handle_entry(dent, false) {
                 return Some(result);
             }
         }
@@ -695,7 +717,9 @@ impl Iterator for IntoIter {
                 None => self.pop(),
                 Some(Err(err)) => return Some(Err(err)),
                 Some(Ok(dent)) => {
-                    if let Some(result) = self.handle_entry(dent) {
+                    if let Some(result) =
+                        self.handle_entry(dent, self.opts.follow_links)
+                    {
                         return Some(result);
                     }
                 }
@@ -817,9 +841,18 @@ impl IntoIter {
     fn handle_entry(
         &mut self,
         mut dent: DirEntry,
+        follow_links: bool,
     ) -> Option<Result<DirEntry>> {
-        if self.opts.follow_links && dent.file_type().is_symlink() {
-            dent = itry!(self.follow(dent));
+        if follow_links && dent.file_type().is_symlink() {
+            match self.follow(&dent) {
+                Ok(followed_dent) => dent = followed_dent,
+                Err(err) => {
+                    if self.opts.yield_link_on_error {
+                        self.last_failed_link.replace(dent);
+                    }
+                    return Some(Err(err));
+                }
+            }
         }
         let is_normal_dir = !dent.file_type().is_symlink() && dent.is_dir();
         if is_normal_dir {
@@ -932,16 +965,19 @@ impl IntoIter {
         self.oldest_opened = min(self.oldest_opened, self.stack_list.len());
     }
 
-    fn follow(&self, mut dent: DirEntry) -> Result<DirEntry> {
-        dent =
-            DirEntry::from_path(self.depth, dent.path().to_path_buf(), true)?;
+    fn follow(&self, link_dent: &DirEntry) -> Result<DirEntry> {
+        let followed_dent = DirEntry::from_path(
+            self.depth,
+            link_dent.path().to_path_buf(),
+            true,
+        )?;
         // The only way a symlink can cause a loop is if it points
         // to a directory. Otherwise, it always points to a leaf
         // and we can omit any loop checks.
-        if dent.is_dir() {
-            self.check_loop(dent.path())?;
+        if followed_dent.is_dir() {
+            self.check_loop(followed_dent.path())?;
         }
-        Ok(dent)
+        Ok(followed_dent)
     }
 
     fn check_loop<P: AsRef<Path>>(&self, child: P) -> Result<()> {
