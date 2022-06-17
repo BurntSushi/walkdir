@@ -183,7 +183,7 @@ impl DirEntry {
     #[cfg(windows)]
     pub(crate) fn is_dir(&self) -> bool {
         use std::os::windows::fs::MetadataExt;
-        use winapi::um::winnt::FILE_ATTRIBUTE_DIRECTORY;
+        use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_DIRECTORY;
         self.metadata.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0
     }
 

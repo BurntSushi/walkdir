@@ -23,9 +23,11 @@ members = ["walkdir-list"]
 [dependencies]
 same-file = "1.0.1"
 
-[target.'cfg(windows)'.dependencies.winapi]
-version = "0.3"
-features = ["std", "winnt"]
+[target.'cfg(windows)'.dependencies.windows-sys]
+version = "0.36.0"
+features = [
+    "Win32_Storage_FileSystem",
+]
 
 [target.'cfg(windows)'.dependencies.winapi-util]
 version = "0.1.1"
