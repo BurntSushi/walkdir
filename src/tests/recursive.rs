@@ -722,7 +722,7 @@ fn min_depth_1() {
     r.assert_no_errors();
 
     let expected = vec![dir.join("a"), dir.join("a").join("b")];
-    assert_eq!(expected, r.sorted_paths());
+    assert_eq!(expected, r.paths());
 }
 
 #[test]
@@ -735,7 +735,7 @@ fn min_depth_2() {
     r.assert_no_errors();
 
     let expected = vec![dir.join("a").join("b")];
-    assert_eq!(expected, r.sorted_paths());
+    assert_eq!(expected, r.paths());
 }
 
 #[test]
@@ -748,7 +748,7 @@ fn max_depth_0() {
     r.assert_no_errors();
 
     let expected = vec![dir.path().to_path_buf()];
-    assert_eq!(expected, r.sorted_paths());
+    assert_eq!(expected, r.paths());
 }
 
 #[test]
@@ -761,7 +761,7 @@ fn max_depth_1() {
     r.assert_no_errors();
 
     let expected = vec![dir.path().to_path_buf(), dir.join("a")];
-    assert_eq!(expected, r.sorted_paths());
+    assert_eq!(expected, r.paths());
 }
 
 #[test]
@@ -775,7 +775,7 @@ fn max_depth_2() {
 
     let expected =
         vec![dir.path().to_path_buf(), dir.join("a"), dir.join("a").join("b")];
-    assert_eq!(expected, r.sorted_paths());
+    assert_eq!(expected, r.paths());
 }
 
 // FIXME: This test seems wrong. It should return nothing!
@@ -789,7 +789,7 @@ fn min_max_depth_diff_nada() {
     r.assert_no_errors();
 
     let expected = vec![dir.join("a").join("b").join("c")];
-    assert_eq!(expected, r.sorted_paths());
+    assert_eq!(expected, r.paths());
 }
 
 #[test]
@@ -802,7 +802,7 @@ fn min_max_depth_diff_0() {
     r.assert_no_errors();
 
     let expected = vec![dir.join("a").join("b")];
-    assert_eq!(expected, r.sorted_paths());
+    assert_eq!(expected, r.paths());
 }
 
 #[test]
@@ -815,7 +815,122 @@ fn min_max_depth_diff_1() {
     r.assert_no_errors();
 
     let expected = vec![dir.join("a"), dir.join("a").join("b")];
-    assert_eq!(expected, r.sorted_paths());
+    assert_eq!(expected, r.paths());
+}
+
+#[test]
+fn contents_first_min_depth_1() {
+    let dir = Dir::tmp();
+    dir.mkdirp("a/b");
+
+    let wd = WalkDir::new(dir.path()).contents_first(true).min_depth(1);
+    let r = dir.run_recursive(wd);
+    r.assert_no_errors();
+
+    let expected = vec![dir.join("a").join("b"), dir.join("a")];
+    assert_eq!(expected, r.paths());
+}
+
+#[test]
+fn contents_first_min_depth_2() {
+    let dir = Dir::tmp();
+    dir.mkdirp("a/b");
+
+    let wd = WalkDir::new(dir.path()).contents_first(true).min_depth(2);
+    let r = dir.run_recursive(wd);
+    r.assert_no_errors();
+
+    let expected = vec![dir.join("a").join("b")];
+    assert_eq!(expected, r.paths());
+}
+
+#[test]
+fn contents_first_max_depth_0() {
+    let dir = Dir::tmp();
+    dir.mkdirp("a/b");
+
+    let wd = WalkDir::new(dir.path()).contents_first(true).max_depth(0);
+    let r = dir.run_recursive(wd);
+    r.assert_no_errors();
+
+    let expected = vec![dir.path().to_path_buf()];
+    assert_eq!(expected, r.paths());
+}
+
+#[test]
+fn contents_first_max_depth_1() {
+    let dir = Dir::tmp();
+    dir.mkdirp("a/b");
+
+    let wd = WalkDir::new(dir.path()).contents_first(true).max_depth(1);
+    let r = dir.run_recursive(wd);
+    r.assert_no_errors();
+
+    let expected = vec![dir.join("a"), dir.path().to_path_buf()];
+    assert_eq!(expected, r.paths());
+}
+
+#[test]
+fn contents_first_max_depth_2() {
+    let dir = Dir::tmp();
+    dir.mkdirp("a/b");
+
+    let wd = WalkDir::new(dir.path()).contents_first(true).max_depth(2);
+    let r = dir.run_recursive(wd);
+    r.assert_no_errors();
+
+    let expected =
+        vec![dir.join("a").join("b"), dir.join("a"), dir.path().to_path_buf()];
+    assert_eq!(expected, r.paths());
+}
+
+// FIXME: This test seems wrong. It should return nothing!
+#[test]
+fn contents_first_min_max_depth_diff_nada() {
+    let dir = Dir::tmp();
+    dir.mkdirp("a/b/c");
+
+    let wd = WalkDir::new(dir.path())
+        .contents_first(true)
+        .min_depth(3)
+        .max_depth(2);
+    let r = dir.run_recursive(wd);
+    r.assert_no_errors();
+
+    let expected = vec![dir.join("a").join("b").join("c")];
+    assert_eq!(expected, r.paths());
+}
+
+#[test]
+fn contents_first_min_max_depth_diff_0() {
+    let dir = Dir::tmp();
+    dir.mkdirp("a/b/c");
+
+    let wd = WalkDir::new(dir.path())
+        .contents_first(true)
+        .min_depth(2)
+        .max_depth(2);
+    let r = dir.run_recursive(wd);
+    r.assert_no_errors();
+
+    let expected = vec![dir.join("a").join("b")];
+    assert_eq!(expected, r.paths());
+}
+
+#[test]
+fn contents_first_min_max_depth_diff_1() {
+    let dir = Dir::tmp();
+    dir.mkdirp("a/b/c");
+
+    let wd = WalkDir::new(dir.path())
+        .contents_first(true)
+        .min_depth(1)
+        .max_depth(2);
+    let r = dir.run_recursive(wd);
+    r.assert_no_errors();
+
+    let expected = vec![dir.join("a").join("b"), dir.join("a")];
+    assert_eq!(expected, r.paths());
 }
 
 #[test]
