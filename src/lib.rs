@@ -434,6 +434,24 @@ impl WalkDir {
         self.sort_by(|a, b| a.file_name().cmp(b.file_name()))
     }
 
+    /// Sort directory entries by file name alphabetically, ignoring case.
+    ///
+    /// This is a convenience function for calling `Self::sort_by()`.
+    ///
+    /// ```rust,no_run
+    /// use walkdir::WalkDir;
+    ///
+    /// WalkDir::new("foo").sort_by_file_name_case_insensitive();
+    /// ```
+    pub fn sort_by_file_name_case_insensitive(self) -> Self {
+        self.sort_by(|a, b| {
+            a.file_name()
+                .to_string_lossy()
+                .to_lowercase()
+                .cmp(&b.file_name().to_string_lossy().to_lowercase())
+        })
+    }
+
     /// Yield a directory's contents before the directory itself. By default,
     /// this is disabled.
     ///
