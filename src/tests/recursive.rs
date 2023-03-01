@@ -863,7 +863,8 @@ fn stop_descent() {
     dir.mkdirp("foo/a");
     dir.mkdirp("foo/b");
     dir.touch("foo/c");
-    dir.mkdirp("foo/sub/bar");
+    dir.mkdirp("foo/sub");
+    dir.touch("foo/sub/bar");
 
     let mut paths = vec![];
     let mut it = WalkDir::new(dir.path()).into_iter();

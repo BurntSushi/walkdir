@@ -761,20 +761,20 @@ impl IntoIter {
         }
     }
 
-    /// Stops the walk from descending into subdirectories, but continues 
+    /// Stops the walk from descending into subdirectories, but continues
     /// to traverse the current directory.
     ///
-    /// Both `stop_descent` and `skip_current_dir` affect the behavior 
-    /// of the directory traversal in a way that prevents the walk 
+    /// Both `stop_descent` and `skip_current_dir` affect the behavior
+    /// of the directory traversal in a way that prevents the walk
     /// from descending into subdirectories. However, they differ in how
     ///  they handle the current directory:
     ///
-    /// * `stop_descent` continues to traverse the current directory, 
+    /// * `stop_descent` continues to traverse the current directory,
     /// while preventing the walk from descending into subdirectories.
-    /// * `skip_current_dir` skips over the current directory entirely, 
+    /// * `skip_current_dir` skips over the current directory entirely,
     /// including its contents, and continues the walk in its parent directory.
-    /// 
-    /// Note that this method has the same ergonomics issues 
+    ///
+    /// Note that this method has the same ergonomics issues
     /// as skip_current_dir` since it borrows the iterator mutably:
     ///
     /// ```no_run
