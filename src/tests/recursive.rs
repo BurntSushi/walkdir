@@ -867,7 +867,7 @@ fn stop_descent() {
     dir.touch("foo/sub/bar");
 
     let mut paths = vec![];
-    let mut it = WalkDir::new(dir.path()).into_iter();
+    let mut it = WalkDir::new(dir.path()).contents_first(true).into_iter();
     while let Some(result) = it.next() {
         let ent = result.unwrap();
         paths.push(ent.path().to_path_buf());
