@@ -858,6 +858,36 @@ fn skip_current_dir() {
 }
 
 #[test]
+fn stop_descent() {
+    let dir = Dir::tmp();
+    dir.mkdirp("foo/a");
+    dir.mkdirp("foo/b");
+    dir.touch("foo/c");
+    dir.mkdirp("foo/sub/bar");
+
+    let mut paths = vec![];
+    let mut it = WalkDir::new(dir.path()).into_iter();
+    while let Some(result) = it.next() {
+        let ent = result.unwrap();
+        paths.push(ent.path().to_path_buf());
+        if ent.file_name() == "c" {
+            it.stop_descent();
+        }
+    }
+    paths.sort();
+
+    let expected = vec![
+        dir.path().to_path_buf(),
+        dir.join("foo"),
+        dir.join("foo").join("a"),
+        dir.join("foo").join("b"),
+        dir.join("foo").join("c"),
+        dir.join("foo").join("sub"),
+    ];
+    assert_eq!(expected, paths);
+}
+
+#[test]
 fn filter_entry() {
     let dir = Dir::tmp();
     dir.mkdirp("foo/bar/baz/abc");

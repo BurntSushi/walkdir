@@ -761,6 +761,45 @@ impl IntoIter {
         }
     }
 
+    /// Stops the walk from descending into subdirectories, but continues 
+    /// to traverse the current directory.
+    ///
+    /// Both `stop_descent` and `skip_current_dir` affect the behavior 
+    /// of the directory traversal in a way that prevents the walk 
+    /// from descending into subdirectories. However, they differ in how
+    ///  they handle the current directory:
+    ///
+    /// * `stop_descent` continues to traverse the current directory, 
+    /// while preventing the walk from descending into subdirectories.
+    /// * `skip_current_dir` skips over the current directory entirely, 
+    /// including its contents, and continues the walk in its parent directory.
+    /// 
+    /// Note that this method has the same ergonomics issues 
+    /// as skip_current_dir` since it borrows the iterator mutably:
+    ///
+    /// ```no_run
+    /// use std::sync::mpsc;
+    /// use walkdir::WalkDir;
+    ///
+    /// fn calc_dir_size(rx: mpsc::Receiver<()>) -> std::io::Result<u64> {
+    ///     let mut sum = 0;
+    ///     let mut it = WalkDir::new("foo").into_iter();
+    ///     while let Some(entry) = it.next() {
+    ///         if let Ok(stop) = rx.try_recv() {
+    ///             it.stop_descent()
+    ///         }
+    ///         let entry = entry?;
+    ///         if entry.file_type().is_file() {
+    ///             sum += entry.metadata()?.len();
+    ///         }
+    ///     }
+    ///     Ok(sum)
+    /// }
+    /// ```
+    pub fn stop_descent(&mut self) {
+        self.opts.max_depth = self.depth;
+    }
+
     /// Yields only entries which satisfy the given predicate and skips
     /// descending into directories that do not satisfy the given predicate.
     ///
