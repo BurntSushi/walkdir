@@ -875,7 +875,7 @@ fn stop_descent() {
             it.stop_descent();
         }
     }
-    paths.sort();
+    //paths.sort();
 
     let expected = vec![
         dir.path().to_path_buf(),
