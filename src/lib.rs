@@ -601,7 +601,7 @@ impl Ancestor {
     #[cfg(windows)]
     fn new(dent: &DirEntry) -> io::Result<Ancestor> {
         let handle = Handle::from_path(dent.path())?;
-        Ok(Ancestor { path: dent.path().to_path_buf(), handle})
+        Ok(Ancestor { path: dent.path().to_path_buf(), handle })
     }
 
     /// Create a new ancestor from the given directory path.

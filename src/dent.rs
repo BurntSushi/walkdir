@@ -177,18 +177,6 @@ impl DirEntry {
     }
 
     /// Returns true if and only if this entry points to a directory.
-    ///
-    /// This works around a bug in Rust's standard library:
-    /// https://github.com/rust-lang/rust/issues/46484
-    #[cfg(windows)]
-    pub(crate) fn is_dir(&self) -> bool {
-        use std::os::windows::fs::MetadataExt;
-        use winapi::um::winnt::FILE_ATTRIBUTE_DIRECTORY;
-        self.metadata.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0
-    }
-
-    /// Returns true if and only if this entry points to a directory.
-    #[cfg(not(windows))]
     pub(crate) fn is_dir(&self) -> bool {
         self.ty.is_dir()
     }
