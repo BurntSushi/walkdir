@@ -206,10 +206,10 @@ impl DirEntry {
             .metadata()
             .map_err(|err| Error::from_path(depth, path.clone(), err))?;
         Ok(DirEntry {
-            path: path,
-            ty: ty,
+            path,
+            ty,
             follow_link: false,
-            depth: depth,
+            depth,
             metadata: md,
         })
     }
@@ -226,9 +226,9 @@ impl DirEntry {
             .map_err(|err| Error::from_path(depth, ent.path(), err))?;
         Ok(DirEntry {
             path: ent.path(),
-            ty: ty,
+            ty,
             follow_link: false,
-            depth: depth,
+            depth,
             ino: ent.ino(),
         })
     }
@@ -243,9 +243,9 @@ impl DirEntry {
             .map_err(|err| Error::from_path(depth, ent.path(), err))?;
         Ok(DirEntry {
             path: ent.path(),
-            ty: ty,
+            ty,
             follow_link: false,
-            depth: depth,
+            depth,
         })
     }
 
@@ -290,7 +290,7 @@ impl DirEntry {
             path: pb,
             ty: md.file_type(),
             follow_link: follow,
-            depth: depth,
+            depth,
             ino: md.ino(),
         })
     }
@@ -312,7 +312,7 @@ impl DirEntry {
             path: pb,
             ty: md.file_type(),
             follow_link: follow,
-            depth: depth,
+            depth,
         })
     }
 }
