@@ -193,13 +193,7 @@ impl DirEntry {
         let md = ent
             .metadata()
             .map_err(|err| Error::from_path(depth, path.clone(), err))?;
-        Ok(DirEntry {
-            path,
-            ty,
-            follow_link: false,
-            depth,
-            metadata: md,
-        })
+        Ok(DirEntry { path, ty, follow_link: false, depth, metadata: md })
     }
 
     #[cfg(unix)]
@@ -229,12 +223,7 @@ impl DirEntry {
         let ty = ent
             .file_type()
             .map_err(|err| Error::from_path(depth, ent.path(), err))?;
-        Ok(DirEntry {
-            path: ent.path(),
-            ty,
-            follow_link: false,
-            depth,
-        })
+        Ok(DirEntry { path: ent.path(), ty, follow_link: false, depth })
     }
 
     #[cfg(windows)]
@@ -254,7 +243,7 @@ impl DirEntry {
             path: pb,
             ty: md.file_type(),
             follow_link: follow,
-            depth: depth,
+            depth,
             metadata: md,
         })
     }

@@ -164,10 +164,7 @@ impl Error {
         pb: PathBuf,
         err: io::Error,
     ) -> Self {
-        Error {
-            depth,
-            inner: ErrorInner::Io { path: Some(pb), err },
-        }
+        Error { depth, inner: ErrorInner::Io { path: Some(pb), err } }
     }
 
     pub(crate) fn from_entry(dent: &DirEntry, err: io::Error) -> Self {
