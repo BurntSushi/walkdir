@@ -601,7 +601,7 @@ impl Ancestor {
     #[cfg(windows)]
     fn new(dent: &DirEntry) -> io::Result<Ancestor> {
         let handle = Handle::from_path(dent.path())?;
-        Ok(Ancestor { path: dent.path().to_path_buf(), handle: handle })
+        Ok(Ancestor { path: dent.path().to_path_buf(), handle })
     }
 
     /// Create a new ancestor from the given directory path.
@@ -811,7 +811,7 @@ impl IntoIter {
     where
         P: FnMut(&DirEntry) -> bool,
     {
-        FilterEntry { it: self, predicate: predicate }
+        FilterEntry { it: self, predicate }
     }
 
     fn handle_entry(
@@ -1109,7 +1109,7 @@ where
     /// [`min_depth`]: struct.WalkDir.html#method.min_depth
     /// [`max_depth`]: struct.WalkDir.html#method.max_depth
     pub fn filter_entry(self, predicate: P) -> FilterEntry<Self, P> {
-        FilterEntry { it: self, predicate: predicate }
+        FilterEntry { it: self, predicate }
     }
 
     /// Skips the current directory.

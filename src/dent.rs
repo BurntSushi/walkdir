@@ -177,18 +177,6 @@ impl DirEntry {
     }
 
     /// Returns true if and only if this entry points to a directory.
-    ///
-    /// This works around a bug in Rust's standard library:
-    /// https://github.com/rust-lang/rust/issues/46484
-    #[cfg(windows)]
-    pub(crate) fn is_dir(&self) -> bool {
-        use std::os::windows::fs::MetadataExt;
-        use winapi::um::winnt::FILE_ATTRIBUTE_DIRECTORY;
-        self.metadata.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0
-    }
-
-    /// Returns true if and only if this entry points to a directory.
-    #[cfg(not(windows))]
     pub(crate) fn is_dir(&self) -> bool {
         self.ty.is_dir()
     }
@@ -205,13 +193,7 @@ impl DirEntry {
         let md = ent
             .metadata()
             .map_err(|err| Error::from_path(depth, path.clone(), err))?;
-        Ok(DirEntry {
-            path: path,
-            ty: ty,
-            follow_link: false,
-            depth: depth,
-            metadata: md,
-        })
+        Ok(DirEntry { path, ty, follow_link: false, depth, metadata: md })
     }
 
     #[cfg(unix)]
@@ -226,9 +208,9 @@ impl DirEntry {
             .map_err(|err| Error::from_path(depth, ent.path(), err))?;
         Ok(DirEntry {
             path: ent.path(),
-            ty: ty,
+            ty,
             follow_link: false,
-            depth: depth,
+            depth,
             ino: ent.ino(),
         })
     }
@@ -241,12 +223,7 @@ impl DirEntry {
         let ty = ent
             .file_type()
             .map_err(|err| Error::from_path(depth, ent.path(), err))?;
-        Ok(DirEntry {
-            path: ent.path(),
-            ty: ty,
-            follow_link: false,
-            depth: depth,
-        })
+        Ok(DirEntry { path: ent.path(), ty, follow_link: false, depth })
     }
 
     #[cfg(windows)]
@@ -266,7 +243,7 @@ impl DirEntry {
             path: pb,
             ty: md.file_type(),
             follow_link: follow,
-            depth: depth,
+            depth,
             metadata: md,
         })
     }
@@ -290,7 +267,7 @@ impl DirEntry {
             path: pb,
             ty: md.file_type(),
             follow_link: follow,
-            depth: depth,
+            depth,
             ino: md.ino(),
         })
     }
@@ -312,7 +289,7 @@ impl DirEntry {
             path: pb,
             ty: md.file_type(),
             follow_link: follow,
-            depth: depth,
+            depth,
         })
     }
 }
