@@ -714,7 +714,7 @@ impl Iterator for IntoIter {
 impl IntoIter {
     /// Skips the current directory.
     ///
-    /// This causes the iterator to stop traversing the contents of the least
+    /// This causes the iterator to stop traversing the contents of the most
     /// recently yielded directory. This means any remaining entries in that
     /// directory will be skipped (including sub-directories).
     ///
