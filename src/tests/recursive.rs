@@ -713,6 +713,53 @@ fn sym_dir_self_loop_io_error() {
 }
 
 #[test]
+fn sym_yield_on_error() {
+    let dir = Dir::tmp();
+    dir.symlink_file("a", "a");
+    dir.touch("b");
+
+    let wd =
+        WalkDir::new(dir.path()).follow_links(true).yield_link_on_error(true);
+    let r = dir.run_recursive(wd);
+
+    let (ents, errs) = (r.sorted_ents(), r.errs());
+    assert_eq!(3, ents.len());
+    assert_eq!(1, errs.len());
+
+    let link = &ents[1];
+    assert_eq!(dir.join("a"), link.path());
+    assert!(link.path_is_symlink());
+
+    assert!(link.file_type().is_symlink());
+    assert!(!link.file_type().is_file());
+    assert!(!link.file_type().is_dir());
+
+    assert!(link.metadata().unwrap().file_type().is_symlink());
+    assert!(!link.metadata().unwrap().file_type().is_file());
+    assert!(!link.metadata().unwrap().file_type().is_dir());
+
+    let ent = &ents[2];
+    assert_eq!(dir.join("b"), ent.path());
+    assert!(!ent.path_is_symlink());
+
+    assert!(ent.file_type().is_file());
+    assert!(!ent.file_type().is_symlink());
+    assert!(!ent.file_type().is_dir());
+
+    assert!(ent.metadata().unwrap().file_type().is_file());
+    assert!(!ent.metadata().unwrap().file_type().is_symlink());
+    assert!(!ent.metadata().unwrap().file_type().is_dir());
+
+    let err = &errs[0];
+
+    let expected = dir.join("a");
+    assert_eq!(Some(&*expected), err.path());
+    assert_eq!(1, err.depth());
+    assert!(err.loop_ancestor().is_none());
+    assert!(err.io_error().is_some());
+}
+
+#[test]
 fn min_depth_1() {
     let dir = Dir::tmp();
     dir.mkdirp("a/b");
