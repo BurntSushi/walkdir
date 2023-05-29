@@ -1021,3 +1021,44 @@ fn regression_skip_current_dir() {
     wd.skip_current_dir();
     wd.next();
 }
+
+// Tests that entries are returned in the correct order when contents_first is
+// on and the root is a symlink to a directory.
+//
+// See: https://github.com/BurntSushi/walkdir/issues/163
+#[test]
+fn regression_sym_root_dir_nofollow_contents_first() {
+    let dir = Dir::tmp();
+    dir.mkdirp("dir/a/b");
+    dir.touch("dir/a-file");
+    dir.symlink_dir("dir", "link");
+
+    let wd = WalkDir::new(dir.join("link")).contents_first(true);
+    let r = dir.run_recursive(wd);
+    r.assert_no_errors();
+
+    let ents = r.ents();
+    assert_eq!(4, ents.len());
+
+    // link (the root) should always be the final entry.
+    let link = &ents[3];
+    assert_eq!(dir.join("link"), link.path());
+    assert!(link.path_is_symlink());
+    assert_eq!(dir.join("dir"), fs::read_link(link.path()).unwrap());
+
+    // link/a/b must be followed directly by link/a
+    let path_link_a_b = dir.join("link").join("a").join("b");
+    let path_link_a = dir.join("link").join("a");
+    let mut expect_link_a = false;
+    for ent in ents {
+        if expect_link_a {
+            assert_eq!(path_link_a, ent.path());
+            break;
+        } else if ent.path() == path_link_a_b {
+            expect_link_a = true;
+        }
+    }
+    if !expect_link_a {
+        panic!("Did not find link/a/b in results");
+    }
+}
