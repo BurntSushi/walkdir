@@ -294,6 +294,12 @@ impl DirEntry {
     }
 }
 
+impl AsRef<Path> for DirEntry {
+    fn as_ref(&self) -> &Path {
+        self.path()
+    }
+}
+
 impl Clone for DirEntry {
     #[cfg(windows)]
     fn clone(&self) -> DirEntry {
