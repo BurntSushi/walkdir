@@ -10,7 +10,7 @@ readme = "README.md"
 keywords = ["directory", "recursive", "walk", "iterator"]
 categories = ["filesystem"]
 license = "Unlicense/MIT"
-exclude = [".github", "compare", "walkdir-list"]
+exclude = [".github", "compare"]
 edition = "2018"
 
 [workspace]
