@@ -10,12 +10,8 @@ readme = "README.md"
 keywords = ["directory", "recursive", "walk", "iterator"]
 categories = ["filesystem"]
 license = "Unlicense/MIT"
-exclude = ["/ci/*", "/.travis.yml", "/appveyor.yml"]
+exclude = [".github", "compare", "walkdir-list"]
 edition = "2018"
-
-[badges]
-travis-ci = { repository = "BurntSushi/walkdir" }
-appveyor = { repository = "BurntSushi/walkdir" }
 
 [workspace]
 members = ["walkdir-list"]
