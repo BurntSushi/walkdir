@@ -237,6 +237,7 @@ pub struct WalkDir {
 
 struct WalkDirOptions {
     follow_links: bool,
+    follow_root_links: bool,
     max_open: usize,
     min_depth: usize,
     max_depth: usize,
@@ -265,6 +266,7 @@ impl fmt::Debug for WalkDirOptions {
         };
         f.debug_struct("WalkDirOptions")
             .field("follow_links", &self.follow_links)
+            .field("follow_root_link", &self.follow_root_links)
             .field("max_open", &self.max_open)
             .field("min_depth", &self.min_depth)
             .field("max_depth", &self.max_depth)
@@ -287,6 +289,7 @@ impl WalkDir {
         WalkDir {
             opts: WalkDirOptions {
                 follow_links: false,
+                follow_root_links: true,
                 max_open: 10,
                 min_depth: 0,
                 max_depth: ::std::usize::MAX,
@@ -341,6 +344,25 @@ impl WalkDir {
     /// [`DirEntry`]: struct.DirEntry.html
     pub fn follow_links(mut self, yes: bool) -> Self {
         self.opts.follow_links = yes;
+        self
+    }
+
+    /// Follow symbolic links if these are the root of the traversal.
+    /// By default, this is enabled.
+    ///
+    /// When `yes` is `true`, symbolic links on root paths are followed
+    /// which is effective if the symbolic link points to a directory.
+    /// If a symbolic link is broken or is involved in a loop, an error is yielded
+    /// as the first entry of the traversal.
+    ///
+    /// When enabled, the yielded [`DirEntry`] values represent the target of
+    /// the link while the path corresponds to the link. See the [`DirEntry`]
+    /// type for more details, and all future entries will be contained within
+    /// the resolved directory behind the symbolic link of the root path.
+    ///
+    /// [`DirEntry`]: struct.DirEntry.html
+    pub fn follow_root_links(mut self, yes: bool) -> Self {
+        self.opts.follow_root_links = yes;
         self
     }
 
@@ -830,7 +852,10 @@ impl IntoIter {
             } else {
                 itry!(self.push(&dent));
             }
-        } else if dent.depth() == 0 && dent.file_type().is_symlink() {
+        } else if dent.depth() == 0
+            && dent.file_type().is_symlink()
+            && self.opts.follow_root_links
+        {
             // As a special case, if we are processing a root entry, then we
             // always follow it even if it's a symlink and follow_links is
             // false. We are careful to not let this change the semantics of

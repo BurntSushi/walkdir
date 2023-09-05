@@ -383,7 +383,76 @@ fn sym_root_file_follow() {
 }
 
 #[test]
-fn sym_root_dir_nofollow() {
+fn broken_sym_root_dir_nofollow_and_root_nofollow() {
+    let dir = Dir::tmp();
+    dir.symlink_dir("broken", "a-link");
+
+    let wd = WalkDir::new(dir.join("a-link"))
+        .follow_links(false)
+        .follow_root_links(false);
+    let r = dir.run_recursive(wd);
+    let ents = r.sorted_ents();
+    assert_eq!(ents.len(), 1);
+    let link = &ents[0];
+    assert_eq!(dir.join("a-link"), link.path());
+    assert!(link.path_is_symlink());
+}
+
+#[test]
+fn broken_sym_root_dir_follow_and_root_nofollow() {
+    let dir = Dir::tmp();
+    dir.symlink_dir("broken", "a-link");
+
+    let wd = WalkDir::new(dir.join("a-link"))
+        .follow_links(true)
+        .follow_root_links(false);
+    let r = dir.run_recursive(wd);
+    assert!(r.sorted_ents().is_empty());
+    assert_eq!(
+        r.errs().len(),
+        1,
+        "broken symlink cannot be traversed - they are followed if symlinks are followed"
+    );
+}
+
+#[test]
+fn broken_sym_root_dir_root_is_always_followed() {
+    let dir = Dir::tmp();
+    dir.symlink_dir("broken", "a-link");
+
+    for follow_symlinks in &[true, false] {
+        let wd =
+            WalkDir::new(dir.join("a-link")).follow_links(*follow_symlinks);
+        let r = dir.run_recursive(wd);
+        assert!(r.sorted_ents().is_empty());
+        assert_eq!(
+            r.errs().len(),
+            1,
+            "broken symlink in roots cannot be traversed, they are always followed"
+        );
+    }
+}
+
+#[test]
+fn sym_root_dir_nofollow_root_nofollow() {
+    let dir = Dir::tmp();
+    dir.mkdirp("a");
+    dir.symlink_dir("a", "a-link");
+    dir.touch("a/zzz");
+
+    let wd = WalkDir::new(dir.join("a-link")).follow_root_links(false);
+    let r = dir.run_recursive(wd);
+    r.assert_no_errors();
+
+    let ents = r.sorted_ents();
+    assert_eq!(1, ents.len());
+    let link = &ents[0];
+    assert_eq!(dir.join("a-link"), link.path());
+    assert_eq!(0, link.depth());
+}
+
+#[test]
+fn sym_root_dir_nofollow_root_follow() {
     let dir = Dir::tmp();
     dir.mkdirp("a");
     dir.symlink_dir("a", "a-link");
