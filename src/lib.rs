@@ -658,6 +658,10 @@ impl Ancestor {
 /// [`Vec<fs::DirEntry>`]: https://doc.rust-lang.org/stable/std/vec/struct.Vec.html
 #[derive(Debug)]
 enum DirList {
+    /// A path to a directory that we will open later to get a handle
+    ///
+    /// This includes the depth of the directory
+    ToOpen { depth: usize, path: PathBuf },
     /// An opened handle.
     ///
     /// This includes the depth of the handle itself.
@@ -904,11 +908,11 @@ impl IntoIter {
         if free == self.opts.max_open {
             self.stack_list[self.oldest_opened].close();
         }
-        // Open a handle to reading the directory's entries.
-        let rd = fs::read_dir(dent.path()).map_err(|err| {
-            Some(Error::from_path(self.depth, dent.path().to_path_buf(), err))
-        });
-        let mut list = DirList::Opened { depth: self.depth, it: rd };
+
+        let mut list = DirList::ToOpen {
+            depth: self.depth,
+            path: dent.path().to_path_buf(),
+        };
         if let Some(ref mut cmp) = self.opts.sorter {
             let mut entries: Vec<_> = list.collect();
             entries.sort_by(|a, b| match (a, b) {
@@ -1002,6 +1006,14 @@ impl IntoIter {
 }
 
 impl DirList {
+    fn open(&mut self) {
+        if let DirList::ToOpen { depth, path } = &self {
+            let rd = fs::read_dir(path).map_err(|err| {
+                Some(Error::from_path(*depth, path.to_path_buf(), err))
+            });
+            *self = DirList::Opened { depth: *depth, it: rd };
+        }
+    }
     fn close(&mut self) {
         if let DirList::Opened { .. } = *self {
             *self = DirList::Closed(self.collect::<Vec<_>>().into_iter());
@@ -1015,6 +1027,10 @@ impl Iterator for DirList {
     #[inline(always)]
     fn next(&mut self) -> Option<Result<DirEntry>> {
         match *self {
+            DirList::ToOpen { .. } => {
+                self.open();
+                self.next()
+            }
             DirList::Closed(ref mut it) => it.next(),
             DirList::Opened { depth, ref mut it } => match *it {
                 Err(ref mut err) => err.take().map(Err),
