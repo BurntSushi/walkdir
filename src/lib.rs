@@ -109,6 +109,8 @@ for entry in walker.filter_entry(|e| !is_hidden(e)) {
 #[cfg(doctest)]
 doc_comment::doctest!("../README.md");
 
+#[cfg(feature = "async")]
+use futures::{Future, FutureExt, Stream};
 use std::cmp::{min, Ordering};
 use std::fmt;
 use std::fs::{self, ReadDir};
@@ -836,6 +838,24 @@ impl IntoIter {
         FilterEntry { it: self, predicate }
     }
 
+    /// Same as [`filter_entry`] but it accepts a predicate that can
+    /// returns futures, e.g. asynchronous filters.
+    ///
+    /// [`skip_current_dir`]: #method.skip_current_dir
+    /// [`min_depth`]: struct.WalkDir.html#method.min_depth
+    /// [`max_depth`]: struct.WalkDir.html#method.max_depth
+    #[cfg(feature = "async")]
+    pub fn async_filter_entry<P, Fut>(
+        self,
+        predicate: P,
+    ) -> AsyncFilterEntry<Self, P>
+    where
+        P: FnMut(&DirEntry) -> Fut,
+        Fut: Future<Output = bool>,
+    {
+        AsyncFilterEntry { it: self, predicate }
+    }
+
     fn handle_entry(
         &mut self,
         mut dent: DirEntry,
@@ -1054,6 +1074,34 @@ pub struct FilterEntry<I, P> {
     predicate: P,
 }
 
+/// An asynchronous recursive directory iterator that skips entries.
+///
+/// Values of this type are created by calling [`.async_filter_entry()`] on an
+/// `IntoIter`, which is formed by calling [`.into_iter()`] on a `WalkDir`.
+///
+/// Directories that fail the predicate `P` are skipped. Namely, they are
+/// never yielded and never descended into.
+///
+/// Entries that are skipped with the [`min_depth`] and [`max_depth`] options
+/// are not passed through this filter.
+///
+/// If opening a handle to a directory resulted in an error, then it is yielded
+/// and no corresponding call to the predicate is made.
+///
+/// Type parameter `I` refers to the underlying iterator and `P` refers to the
+/// predicate, which is usually `FnMut(&DirEntry) -> bool`.
+///
+/// [`.async_filter_entry()`]: struct.IntoIter.html#method.async_filter_entry
+/// [`.into_iter()`]: struct.WalkDir.html#into_iter.v
+/// [`min_depth`]: struct.WalkDir.html#method.min_depth
+/// [`max_depth`]: struct.WalkDir.html#method.max_depth
+#[cfg(feature = "async")]
+#[derive(Debug)]
+pub struct AsyncFilterEntry<I, P> {
+    it: I,
+    predicate: P,
+}
+
 impl<P> Iterator for FilterEntry<IntoIter, P>
 where
     P: FnMut(&DirEntry) -> bool,
@@ -1079,6 +1127,44 @@ where
                 continue;
             }
             return Some(Ok(dent));
+        }
+    }
+}
+
+#[cfg(feature = "async")]
+impl<P, Fut> Stream for AsyncFilterEntry<IntoIter, P>
+where
+    P: FnMut(&DirEntry) -> Fut + std::marker::Unpin,
+    Fut: Future<Output = bool> + std::marker::Unpin,
+{
+    type Item = Result<DirEntry>;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        loop {
+            let dent = match self.it.next() {
+                None => return std::task::Poll::Ready(None),
+                Some(Ok(result)) => result,
+                Some(Err(err)) => {
+                    return std::task::Poll::Ready(Some(Err(err)))
+                }
+            };
+
+            match (self.predicate)(&dent).poll_unpin(cx) {
+                std::task::Poll::Ready(keep) => {
+                    if !keep {
+                        if dent.is_dir() {
+                            self.it.skip_current_dir();
+                        }
+                        continue;
+                    } else {
+                        return std::task::Poll::Ready(Some(Ok(dent)));
+                    }
+                }
+                std::task::Poll::Pending => return std::task::Poll::Pending,
+            }
         }
     }
 }
