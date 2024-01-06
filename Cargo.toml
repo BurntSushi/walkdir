@@ -21,7 +21,12 @@ appveyor = { repository = "BurntSushi/walkdir" }
 members = ["walkdir-list"]
 
 [dependencies]
+futures = { version = "0.3.30", optional = true }
 same-file = "1.0.1"
+
+[features]
+default = []
+async = ["dep:futures"]
 
 [target.'cfg(windows)'.dependencies.winapi-util]
 version = "0.1.1"
