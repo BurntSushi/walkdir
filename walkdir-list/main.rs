@@ -91,9 +91,9 @@ where
 {
     for dir in &args.dirs {
         if args.tree {
-            print_paths_tree(&args, &mut stdout, &mut stderr, dir)?;
+            print_paths_tree(args, &mut stdout, &mut stderr, dir)?;
         } else {
-            print_paths_flat(&args, &mut stdout, &mut stderr, dir)?;
+            print_paths_flat(args, &mut stdout, &mut stderr, dir)?;
         }
     }
     Ok(())
@@ -250,7 +250,7 @@ impl Args {
             Some(dirs) => dirs.map(PathBuf::from).collect(),
         };
         Ok(Args {
-            dirs: dirs,
+            dirs,
             follow_links: parsed.is_present("follow-links"),
             min_depth: parse_usize(&parsed, "min-depth")?,
             max_depth: parse_usize(&parsed, "max-depth")?,
