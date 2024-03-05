@@ -170,8 +170,8 @@ impl DirEntry {
     /// Returns the depth at which this entry was created relative to the root.
     ///
     /// The smallest depth is `0` and always corresponds to the path given
-    /// to the `new` function on `WalkDir`. Its direct descendents have depth
-    /// `1`, and their descendents have depth `2`, and so on.
+    /// to the `new` function on `WalkDir`. Its direct descendants have depth
+    /// `1`, and their descendants have depth `2`, and so on.
     pub fn depth(&self) -> usize {
         self.depth
     }
