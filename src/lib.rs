@@ -231,30 +231,25 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 /// Note that when following symbolic/soft links, loops are detected and an
 /// error is reported.
 #[derive(Debug)]
-pub struct WalkDir {
-    opts: WalkDirOptions,
+pub struct WalkDir<'slf> {
+    opts: WalkDirOptions<'slf>,
     root: PathBuf,
 }
 
-struct WalkDirOptions {
+struct WalkDirOptions<'slf> {
     follow_links: bool,
     follow_root_links: bool,
     max_open: usize,
     min_depth: usize,
     max_depth: usize,
     sorter: Option<
-        Box<
-            dyn FnMut(&DirEntry, &DirEntry) -> Ordering
-                + Send
-                + Sync
-                + 'static,
-        >,
+        Box<dyn FnMut(&DirEntry, &DirEntry) -> Ordering + Send + Sync + 'slf>,
     >,
     contents_first: bool,
     same_file_system: bool,
 }
 
-impl fmt::Debug for WalkDirOptions {
+impl<'slf> fmt::Debug for WalkDirOptions<'slf> {
     fn fmt(
         &self,
         f: &mut fmt::Formatter<'_>,
@@ -278,7 +273,7 @@ impl fmt::Debug for WalkDirOptions {
     }
 }
 
-impl WalkDir {
+impl<'slf> WalkDir<'slf> {
     /// Create a builder for a recursive directory iterator starting at the
     /// file path `root`. If `root` is a directory, then it is the first item
     /// yielded by the iterator. If `root` is a file, then it is the first
@@ -416,7 +411,7 @@ impl WalkDir {
     /// ```
     pub fn sort_by<F>(mut self, cmp: F) -> Self
     where
-        F: FnMut(&DirEntry, &DirEntry) -> Ordering + Send + Sync + 'static,
+        F: FnMut(&DirEntry, &DirEntry) -> Ordering + Send + Sync + 'slf,
     {
         self.opts.sorter = Some(Box::new(cmp));
         self
@@ -438,7 +433,7 @@ impl WalkDir {
     /// ```
     pub fn sort_by_key<K, F>(self, mut cmp: F) -> Self
     where
-        F: FnMut(&DirEntry) -> K + Send + Sync + 'static,
+        F: FnMut(&DirEntry) -> K + Send + Sync + 'slf,
         K: Ord,
     {
         self.sort_by(move |a, b| cmp(a).cmp(&cmp(b)))
@@ -533,11 +528,11 @@ impl WalkDir {
     }
 }
 
-impl IntoIterator for WalkDir {
+impl<'slf> IntoIterator for WalkDir<'slf> {
     type Item = Result<DirEntry>;
-    type IntoIter = IntoIter;
+    type IntoIter = IntoIter<'slf>;
 
-    fn into_iter(self) -> IntoIter {
+    fn into_iter(self) -> IntoIter<'slf> {
         IntoIter {
             opts: self.opts,
             start: Some(self.root),
@@ -563,9 +558,9 @@ impl IntoIterator for WalkDir {
 /// [`WalkDir`]: struct.WalkDir.html
 /// [`.into_iter()`]: struct.WalkDir.html#into_iter.v
 #[derive(Debug)]
-pub struct IntoIter {
+pub struct IntoIter<'slf> {
     /// Options specified in the builder. Depths, max fds, etc.
-    opts: WalkDirOptions,
+    opts: WalkDirOptions<'slf>,
     /// The start path.
     ///
     /// This is only `Some(...)` at the beginning. After the first iteration,
@@ -676,7 +671,7 @@ enum DirList {
     Closed(vec::IntoIter<Result<DirEntry>>),
 }
 
-impl Iterator for IntoIter {
+impl Iterator for IntoIter<'_> {
     type Item = Result<DirEntry>;
     /// Advances the iterator and returns the next value.
     ///
@@ -734,7 +729,7 @@ impl Iterator for IntoIter {
     }
 }
 
-impl IntoIter {
+impl IntoIter<'_> {
     /// Skips the current directory.
     ///
     /// This causes the iterator to stop traversing the contents of the least
@@ -1002,7 +997,7 @@ impl IntoIter {
     }
 }
 
-impl iter::FusedIterator for IntoIter {}
+impl iter::FusedIterator for IntoIter<'_> {}
 
 impl DirList {
     fn close(&mut self) {
@@ -1057,7 +1052,7 @@ pub struct FilterEntry<I, P> {
     predicate: P,
 }
 
-impl<P> Iterator for FilterEntry<IntoIter, P>
+impl<P> Iterator for FilterEntry<IntoIter<'_>, P>
 where
     P: FnMut(&DirEntry) -> bool,
 {
@@ -1086,12 +1081,12 @@ where
     }
 }
 
-impl<P> iter::FusedIterator for FilterEntry<IntoIter, P> where
+impl<P> iter::FusedIterator for FilterEntry<IntoIter<'_>, P> where
     P: FnMut(&DirEntry) -> bool
 {
 }
 
-impl<P> FilterEntry<IntoIter, P>
+impl<P> FilterEntry<IntoIter<'_>, P>
 where
     P: FnMut(&DirEntry) -> bool,
 {
