@@ -948,6 +948,33 @@ fn filter_entry() {
 }
 
 #[test]
+fn filter_entry_contents_first() {
+    let dir = Dir::tmp();
+    dir.mkdirp("foo/bar/baz1/abc");
+    dir.mkdirp("foo/bar/baz2/abc");
+    dir.mkdirp("quux");
+
+    let wd = WalkDir::new(dir.path())
+        .contents_first(true)
+        .into_iter()
+        .filter_entry(|ent| {
+            ent.file_name() != "baz1" && ent.file_name() != "baz2"
+        });
+    let r = dir.run_recursive(wd);
+    r.assert_no_errors();
+
+    let expected = vec![
+        dir.path().to_path_buf(),
+        dir.join("foo"),
+        dir.join("foo").join("bar"),
+        dir.join("foo").join("bar").join("baz1").join("abc"),
+        dir.join("foo").join("bar").join("baz2").join("abc"),
+        dir.join("quux"),
+    ];
+    assert_eq!(expected, r.sorted_paths());
+}
+
+#[test]
 fn sort_by() {
     let dir = Dir::tmp();
     dir.mkdirp("foo/bar/baz/abc");

@@ -784,6 +784,16 @@ impl IntoIter {
         }
     }
 
+    // Skips the current directory unless the `contents_first` flag is set.
+    //
+    // `FilterEntry::next` calls this method when a directory does not
+    // satisfy the predicate. See `FilterEntry::next` for more details.
+    fn skip_current_dir_unless_contents_first(&mut self) {
+        if !self.opts.contents_first {
+            self.skip_current_dir();
+        }
+    }
+
     /// Yields only entries which satisfy the given predicate and skips
     /// descending into directories that do not satisfy the given predicate.
     ///
@@ -1077,7 +1087,11 @@ where
             };
             if !(self.predicate)(&dent) {
                 if dent.is_dir() {
-                    self.it.skip_current_dir();
+                    // we cannot call `skip_current_dir` here because it
+                    // will pop the entry iterator for the next directory
+                    // instead of the one corresponding to `dent` if
+                    // `contents_first` is enabled.
+                    self.it.skip_current_dir_unless_contents_first();
                 }
                 continue;
             }
