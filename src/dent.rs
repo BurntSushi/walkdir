@@ -20,12 +20,12 @@ use crate::Result;
 /// are some differences however:
 ///
 /// * All recursive directory iterators must inspect the entry's type.
-/// Therefore, the value is stored and its access is guaranteed to be cheap and
-/// successful.
+///   Therefore, the value is stored and its access is guaranteed to be cheap
+///   and successful.
 /// * [`path`] and [`file_name`] return borrowed variants.
 /// * If [`follow_links`] was enabled on the originating iterator, then all
-/// operations except for [`path`] operate on the link target. Otherwise, all
-/// operations operate on the symbolic link.
+///   operations except for [`path`] operate on the link target. Otherwise, all
+///   operations operate on the symbolic link.
 ///
 /// [`std::fs`]: https://doc.rust-lang.org/stable/std/fs/index.html
 /// [`path`]: #method.path
