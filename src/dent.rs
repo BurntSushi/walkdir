@@ -155,7 +155,7 @@ impl DirEntry {
     /// This never makes any system calls.
     ///
     /// [`follow_links`]: struct.WalkDir.html#method.follow_links
-    pub fn file_type(&self) -> fs::FileType {
+    pub fn file_type(&self) -> FileType {
         self.ty
     }
 
