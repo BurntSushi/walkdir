@@ -912,7 +912,7 @@ impl IntoIter {
         let mut list = DirList::Opened { depth: self.depth, it: rd };
         if let Some(ref mut cmp) = self.opts.sorter {
             let mut entries: Vec<_> = list.collect();
-            entries.sort_by(|a, b| match (a, b) {
+            entries.sort_unstable_by(|a, b| match (a, b) {
                 (&Ok(ref a), &Ok(ref b)) => cmp(a, b),
                 (&Err(_), &Err(_)) => Ordering::Equal,
                 (&Ok(_), &Err(_)) => Ordering::Greater,
