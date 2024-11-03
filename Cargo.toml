@@ -3,14 +3,13 @@ name = "walkdir"
 version = "2.5.0"  #:version
 authors = ["Andrew Gallant <jamslam@gmail.com>"]
 description = "Recursively walk a directory."
-documentation = "https://docs.rs/walkdir/"
+documentation = "https://docs.rs/walkdir"
 homepage = "https://github.com/BurntSushi/walkdir"
 repository = "https://github.com/BurntSushi/walkdir"
 readme = "README.md"
 keywords = ["directory", "recursive", "walk", "iterator"]
 categories = ["filesystem"]
-license = "Unlicense/MIT"
-exclude = ["/ci/*", "/.travis.yml", "/appveyor.yml"]
+license = "Unlicense OR MIT"
 edition = "2018"
 
 [badges]
