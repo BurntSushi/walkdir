@@ -148,7 +148,7 @@ macro_rules! itry {
 /// Note that this result type embeds the error type in this crate. This
 /// is only useful if you care about the additional information provided by
 /// the error (such as the path associated with the error or whether a loop
-/// was dectected). If you want things to Just Work, then you can use
+/// was detected). If you want things to Just Work, then you can use
 /// [`io::Result`] instead since the error type in this package will
 /// automatically convert to an [`io::Result`] when using the [`try!`] macro.
 ///
@@ -218,7 +218,7 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 ///
 /// [`min_depth`]: struct.WalkDir.html#method.min_depth
 ///
-/// This will only return descendents of the `foo` directory and not `foo`
+/// This will only return descendants of the `foo` directory and not `foo`
 /// itself.
 ///
 /// # Loops
@@ -305,8 +305,8 @@ impl WalkDir {
     /// Set the minimum depth of entries yielded by the iterator.
     ///
     /// The smallest depth is `0` and always corresponds to the path given
-    /// to the `new` function on this type. Its direct descendents have depth
-    /// `1`, and their descendents have depth `2`, and so on.
+    /// to the `new` function on this type. Its direct descendants have depth
+    /// `1`, and their descendants have depth `2`, and so on.
     pub fn min_depth(mut self, depth: usize) -> Self {
         self.opts.min_depth = depth;
         if self.opts.min_depth > self.opts.max_depth {
@@ -318,8 +318,8 @@ impl WalkDir {
     /// Set the maximum depth of entries yield by the iterator.
     ///
     /// The smallest depth is `0` and always corresponds to the path given
-    /// to the `new` function on this type. Its direct descendents have depth
-    /// `1`, and their descendents have depth `2`, and so on.
+    /// to the `new` function on this type. Its direct descendants have depth
+    /// `1`, and their descendants have depth `2`, and so on.
     ///
     /// Note that this will not simply filter the entries of the iterator, but
     /// it will actually avoid descending into directories when the depth is
@@ -379,7 +379,7 @@ impl WalkDir {
     /// between scarce resources (file descriptors) and memory. Namely, when
     /// the maximum number of file descriptors is reached and a new directory
     /// needs to be opened to continue iteration, then a previous directory
-    /// handle is closed and has its unyielded entries stored in memory. In
+    /// handle is closed and has its un-yielded entries stored in memory. In
     /// practice, this is a satisfying trade off because it scales with respect
     /// to the *depth* of your file tree. Therefore, low values (even `1`) are
     /// acceptable.
@@ -611,7 +611,7 @@ pub struct IntoIter {
 struct Ancestor {
     /// The path of this ancestor.
     path: PathBuf,
-    /// An open file to this ancesor. This is only used on Windows where
+    /// An open file to this ancestor. This is only used on Windows where
     /// opening a file handle appears to be quite expensive, so we choose to
     /// cache it. This comes at the cost of not respecting the file descriptor
     /// limit set by the user.
