@@ -11,10 +11,10 @@ use crate::DirEntry;
 /// particular, it adds the following information:
 ///
 /// * The depth at which the error occurred in the file tree, relative to the
-/// root.
+///   root.
 /// * The path, if any, associated with the IO error.
 /// * An indication that a loop occurred when following symbolic links. In this
-/// case, there is no underlying IO error.
+///   case, there is no underlying IO error.
 ///
 /// To maintain good ergonomics, this type has a
 /// [`impl From<Error> for std::io::Error`][impl] defined which preserves the original context.
@@ -94,7 +94,7 @@ impl Error {
     ///
     /// > This is the original [`io::Error`] and is _not_ the same as
     /// > [`impl From<Error> for std::io::Error`][impl] which contains additional context about the
-    /// error.
+    /// > error.
     ///
     /// # Example
     ///

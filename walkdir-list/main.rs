@@ -91,9 +91,9 @@ where
 {
     for dir in &args.dirs {
         if args.tree {
-            print_paths_tree(&args, &mut stdout, &mut stderr, dir)?;
+            print_paths_tree(args, &mut stdout, &mut stderr, dir)?;
         } else {
-            print_paths_flat(&args, &mut stdout, &mut stderr, dir)?;
+            print_paths_flat(args, &mut stdout, &mut stderr, dir)?;
         }
     }
     Ok(())
@@ -250,7 +250,7 @@ impl Args {
             Some(dirs) => dirs.map(PathBuf::from).collect(),
         };
         Ok(Args {
-            dirs: dirs,
+            dirs,
             follow_links: parsed.is_present("follow-links"),
             min_depth: parse_usize(&parsed, "min-depth")?,
             max_depth: parse_usize(&parsed, "max-depth")?,
@@ -292,6 +292,7 @@ fn parse_usize(
 ) -> Result<Option<usize>> {
     match parsed.value_of_lossy(flag) {
         None => Ok(None),
+        #[allow(clippy::bind_instead_of_map)]
         Some(x) => x.parse().map(Some).or_else(|e| {
             err!("failed to parse --{} as a number: {}", flag, e)
         }),

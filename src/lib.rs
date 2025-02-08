@@ -242,6 +242,7 @@ struct WalkDirOptions {
     max_open: usize,
     min_depth: usize,
     max_depth: usize,
+    #[allow(clippy::type_complexity)]
     sorter: Option<
         Box<
             dyn FnMut(&DirEntry, &DirEntry) -> Ordering
@@ -293,7 +294,7 @@ impl WalkDir {
                 follow_root_links: true,
                 max_open: 10,
                 min_depth: 0,
-                max_depth: ::std::usize::MAX,
+                max_depth: usize::MAX,
                 sorter: None,
                 contents_first: false,
                 same_file_system: false,
@@ -882,17 +883,15 @@ impl IntoIter {
     }
 
     fn get_deferred_dir(&mut self) -> Option<DirEntry> {
-        if self.opts.contents_first {
-            if self.depth < self.deferred_dirs.len() {
-                // Unwrap is safe here because we've guaranteed that
-                // `self.deferred_dirs.len()` can never be less than 1
-                let deferred: DirEntry = self
-                    .deferred_dirs
-                    .pop()
-                    .expect("BUG: deferred_dirs should be non-empty");
-                if !self.skippable() {
-                    return Some(deferred);
-                }
+        if self.opts.contents_first && self.depth < self.deferred_dirs.len() {
+            // Unwrap is safe here because we've guaranteed that
+            // `self.deferred_dirs.len()` can never be less than 1
+            let deferred: DirEntry = self
+                .deferred_dirs
+                .pop()
+                .expect("BUG: deferred_dirs should be non-empty");
+            if !self.skippable() {
+                return Some(deferred);
             }
         }
         None
@@ -913,7 +912,7 @@ impl IntoIter {
         if let Some(ref mut cmp) = self.opts.sorter {
             let mut entries: Vec<_> = list.collect();
             entries.sort_by(|a, b| match (a, b) {
-                (&Ok(ref a), &Ok(ref b)) => cmp(a, b),
+                (Ok(a), Ok(b)) => cmp(a, b),
                 (&Err(_), &Err(_)) => Ordering::Equal,
                 (&Ok(_), &Err(_)) => Ordering::Greater,
                 (&Err(_), &Ok(_)) => Ordering::Less,
@@ -921,7 +920,7 @@ impl IntoIter {
             list = DirList::Closed(entries.into_iter());
         }
         if self.opts.follow_links {
-            let ancestor = Ancestor::new(&dent)
+            let ancestor = Ancestor::new(dent)
                 .map_err(|err| Error::from_io(self.depth, err))?;
             self.stack_path.push(ancestor);
         }
