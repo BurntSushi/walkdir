@@ -1090,3 +1090,33 @@ fn regression_skip_current_dir() {
     wd.skip_current_dir();
     wd.next();
 }
+
+#[cfg(unix)]
+#[test]
+fn open_after_yield() {
+    use std::fs::Permissions;
+    use std::os::unix::fs::PermissionsExt;
+    let permissions = Permissions::from_mode(0o000);
+
+    let dir = Dir::tmp();
+    dir.touch_all(&["a", "b", "c"]);
+
+    // Remove all permissions from the directory so we'll get a permission
+    // denied error if we try to read it early
+    fs::set_permissions(dir.path(), permissions)
+        .expect("set permissions to 0o000");
+    let wd = WalkDir::new(dir.path());
+    let mut it = wd.into_iter();
+    it.next().unwrap().expect("top directory entry");
+
+    // Restore permissions now and yield the directory contents
+    let permissions = Permissions::from_mode(0o700);
+    fs::set_permissions(dir.path(), permissions)
+        .expect("set permissions to 0o700");
+
+    let r = dir.run_recursive(it);
+    r.assert_no_errors();
+
+    let expected = vec![dir.join("a"), dir.join("b"), dir.join("c")];
+    assert_eq!(expected, r.sorted_paths());
+}

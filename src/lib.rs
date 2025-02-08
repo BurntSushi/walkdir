@@ -659,6 +659,10 @@ impl Ancestor {
 /// [`Vec<fs::DirEntry>`]: https://doc.rust-lang.org/stable/std/vec/struct.Vec.html
 #[derive(Debug)]
 enum DirList {
+    /// A path to a directory that we will open later to get a handle
+    ///
+    /// This includes the depth of the directory
+    ToOpen { depth: usize, path: PathBuf },
     /// An opened handle.
     ///
     /// This includes the depth of the handle itself.
@@ -713,6 +717,7 @@ impl Iterator for IntoIter {
                 .stack_list
                 .last_mut()
                 .expect("BUG: stack should be non-empty")
+                .open(&mut self.opts)
                 .next();
             match next {
                 None => self.pop(),
@@ -899,27 +904,11 @@ impl IntoIter {
     }
 
     fn push(&mut self, dent: &DirEntry) -> Result<()> {
-        // Make room for another open file descriptor if we've hit the max.
-        let free =
-            self.stack_list.len().checked_sub(self.oldest_opened).unwrap();
-        if free == self.opts.max_open {
-            self.stack_list[self.oldest_opened].close();
-        }
-        // Open a handle to reading the directory's entries.
-        let rd = fs::read_dir(dent.path()).map_err(|err| {
-            Some(Error::from_path(self.depth, dent.path().to_path_buf(), err))
-        });
-        let mut list = DirList::Opened { depth: self.depth, it: rd };
-        if let Some(ref mut cmp) = self.opts.sorter {
-            let mut entries: Vec<_> = list.collect();
-            entries.sort_by(|a, b| match (a, b) {
-                (&Ok(ref a), &Ok(ref b)) => cmp(a, b),
-                (&Err(_), &Err(_)) => Ordering::Equal,
-                (&Ok(_), &Err(_)) => Ordering::Greater,
-                (&Err(_), &Ok(_)) => Ordering::Less,
-            });
-            list = DirList::Closed(entries.into_iter());
-        }
+        let list = DirList::ToOpen {
+            depth: self.depth,
+            path: dent.path().to_path_buf(),
+        };
+
         if self.opts.follow_links {
             let ancestor = Ancestor::new(&dent)
                 .map_err(|err| Error::from_io(self.depth, err))?;
@@ -928,16 +917,17 @@ impl IntoIter {
         // We push this after stack_path since creating the Ancestor can fail.
         // If it fails, then we return the error and won't descend.
         self.stack_list.push(list);
-        // If we had to close out a previous directory stream, then we need to
-        // increment our index the oldest still-open stream. We do this only
-        // after adding to our stack, in order to ensure that the oldest_opened
-        // index remains valid. The worst that can happen is that an already
-        // closed stream will be closed again, which is a no-op.
-        //
-        // We could move the close of the stream above into this if-body, but
-        // then we would have more than the maximum number of file descriptors
-        // open at a particular point in time.
+
+        // Make room for another open file descriptor if we've hit the max.
+        // Actually we don't need the file descriptor just yet but we'll
+        // open this dir the next time we have to return something so reserving
+        // a slot now still makes sense
+        let free =
+            self.stack_list.len().checked_sub(self.oldest_opened).unwrap();
+
         if free == self.opts.max_open {
+            self.stack_list[self.oldest_opened].close(&mut self.opts);
+
             // Unwrap is safe here because self.oldest_opened is guaranteed to
             // never be greater than `self.stack_list.len()`, which implies
             // that the subtraction won't underflow and that adding 1 will
@@ -1005,7 +995,30 @@ impl IntoIter {
 impl iter::FusedIterator for IntoIter {}
 
 impl DirList {
-    fn close(&mut self) {
+    fn open(&mut self, opts: &mut WalkDirOptions) -> &mut Self {
+        if let DirList::ToOpen { depth, path } = &self {
+            let rd = fs::read_dir(path).map_err(|err| {
+                Some(Error::from_path(*depth, path.to_path_buf(), err))
+            });
+            *self = DirList::Opened { depth: *depth, it: rd };
+
+            if let Some(ref mut cmp) = opts.sorter {
+                let mut entries: Vec<_> = self.collect();
+                entries.sort_by(|a, b| match (a, b) {
+                    (&Ok(ref a), &Ok(ref b)) => cmp(a, b),
+                    (&Err(_), &Err(_)) => Ordering::Equal,
+                    (&Ok(_), &Err(_)) => Ordering::Greater,
+                    (&Err(_), &Ok(_)) => Ordering::Less,
+                });
+                *self = DirList::Closed(entries.into_iter());
+            }
+        }
+        self
+    }
+    fn close(&mut self, opts: &mut WalkDirOptions) {
+        if let DirList::ToOpen { .. } = *self {
+            self.open(opts);
+        }
         if let DirList::Opened { .. } = *self {
             *self = DirList::Closed(self.collect::<Vec<_>>().into_iter());
         }
@@ -1018,6 +1031,9 @@ impl Iterator for DirList {
     #[inline(always)]
     fn next(&mut self) -> Option<Result<DirEntry>> {
         match *self {
+            DirList::ToOpen { .. } => {
+                panic!("BUG: tried to iterate a DirList before opening it")
+            }
             DirList::Closed(ref mut it) => it.next(),
             DirList::Opened { depth, ref mut it } => match *it {
                 Err(ref mut err) => err.take().map(Err),
