@@ -1035,6 +1035,32 @@ fn sort_max_open() {
     assert_eq!(expected, r.paths());
 }
 
+#[test]
+fn has_file_extension() {
+    let dir = Dir::tmp();
+    dir.touch("a.file");
+    dir.mkdirp("b.dir");
+
+    let wd = WalkDir::new(dir.path());
+    let ents = dir.run_recursive(wd).sorted_ents();
+
+    assert!(ents[1].has_file_extension("file"));
+    assert_eq!(false, ents[2].has_file_extension("dir"));
+}
+
+#[test]
+fn has_file_name() {
+    let dir = Dir::tmp();
+    dir.touch("a.file");
+    dir.mkdirp("b.dir");
+
+    let wd = WalkDir::new(dir.path());
+    let ents = dir.run_recursive(wd).sorted_ents();
+
+    assert!(ents[1].has_file_name("a.file"));
+    assert_eq!(false, ents[2].has_file_name("b.dir"));
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn same_file_system() {
