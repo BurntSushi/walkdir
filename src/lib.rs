@@ -844,14 +844,18 @@ impl IntoIter {
         if self.opts.follow_links && dent.file_type().is_symlink() {
             dent = itry!(self.follow(dent));
         }
-        let is_normal_dir = !dent.file_type().is_symlink() && dent.is_dir();
-        if is_normal_dir {
-            if self.opts.same_file_system && dent.depth() > 0 {
-                if itry!(self.is_same_file_system(&dent)) {
-                    itry!(self.push(&dent));
+        let should_descend = if !dent.file_type().is_symlink() {
+            if dent.is_dir() {
+                if self.opts.same_file_system && dent.depth() > 0 {
+                    // Only descend into directories on the same filesystem as
+                    // the root directory.
+                    itry!(self.is_same_file_system(&dent))
+                } else {
+                    // Don't check the filesystem; descend all directories.
+                    true
                 }
             } else {
-                itry!(self.push(&dent));
+                false
             }
         } else if dent.depth() == 0
             && dent.file_type().is_symlink()
@@ -867,11 +871,14 @@ impl IntoIter {
             let md = itry!(fs::metadata(dent.path()).map_err(|err| {
                 Error::from_path(dent.depth(), dent.path().to_path_buf(), err)
             }));
-            if md.file_type().is_dir() {
-                itry!(self.push(&dent));
-            }
+            md.file_type().is_dir()
+        } else {
+            false
+        };
+        if should_descend {
+            itry!(self.push(&dent));
         }
-        if is_normal_dir && self.opts.contents_first {
+        if should_descend && self.opts.contents_first {
             self.deferred_dirs.push(dent);
             None
         } else if self.skippable() {
