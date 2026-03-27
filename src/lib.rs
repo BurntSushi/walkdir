@@ -148,7 +148,7 @@ macro_rules! itry {
 /// Note that this result type embeds the error type in this crate. This
 /// is only useful if you care about the additional information provided by
 /// the error (such as the path associated with the error or whether a loop
-/// was dectected). If you want things to Just Work, then you can use
+/// was detected). If you want things to Just Work, then you can use
 /// [`io::Result`] instead since the error type in this package will
 /// automatically convert to an [`io::Result`] when using the [`try!`] macro.
 ///
