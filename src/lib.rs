@@ -116,6 +116,7 @@ use std::io;
 use std::iter;
 use std::path::{Path, PathBuf};
 use std::result;
+use std::sync::Arc;
 use std::vec;
 
 use same_file::Handle;
@@ -669,7 +670,14 @@ enum DirList {
     ///
     /// [`fs::read_dir`]: https://doc.rust-lang.org/stable/std/fs/fn.read_dir.html
     /// [`Option<...>`]: https://doc.rust-lang.org/stable/std/option/enum.Option.html
-    Opened { depth: usize, it: result::Result<ReadDir, Option<Error>> },
+    Opened {
+        depth: usize,
+        /// The path of the directory whose entries are being read. Held so
+        /// that errors yielded mid-iteration can carry the parent path,
+        /// rather than being `Io { path: None, ... }`. See #126.
+        path: Arc<PathBuf>,
+        it: result::Result<ReadDir, Option<Error>>,
+    },
     /// A closed handle.
     ///
     /// All remaining directory entries are read into memory.
@@ -906,10 +914,11 @@ impl IntoIter {
             self.stack_list[self.oldest_opened].close();
         }
         // Open a handle to reading the directory's entries.
-        let rd = fs::read_dir(dent.path()).map_err(|err| {
-            Some(Error::from_path(self.depth, dent.path().to_path_buf(), err))
+        let path = Arc::new(dent.path().to_path_buf());
+        let rd = fs::read_dir(path.as_ref().as_path()).map_err(|err| {
+            Some(Error::from_path(self.depth, (*path).clone(), err))
         });
-        let mut list = DirList::Opened { depth: self.depth, it: rd };
+        let mut list = DirList::Opened { depth: self.depth, path, it: rd };
         if let Some(ref mut cmp) = self.opts.sorter {
             let mut entries: Vec<_> = list.collect();
             entries.sort_by(|a, b| match (a, b) {
@@ -1019,11 +1028,13 @@ impl Iterator for DirList {
     fn next(&mut self) -> Option<Result<DirEntry>> {
         match *self {
             DirList::Closed(ref mut it) => it.next(),
-            DirList::Opened { depth, ref mut it } => match *it {
+            DirList::Opened { depth, ref path, ref mut it } => match *it {
                 Err(ref mut err) => err.take().map(Err),
                 Ok(ref mut rd) => rd.next().map(|r| match r {
                     Ok(r) => DirEntry::from_entry(depth + 1, &r),
-                    Err(err) => Err(Error::from_io(depth + 1, err)),
+                    Err(err) => {
+                        Err(Error::from_path(depth + 1, (**path).clone(), err))
+                    }
                 }),
             },
         }
