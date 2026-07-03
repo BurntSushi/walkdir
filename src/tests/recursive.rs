@@ -948,6 +948,37 @@ fn filter_entry() {
 }
 
 #[test]
+fn filter_entry_chained() {
+    // Regression test for https://github.com/BurntSushi/walkdir/issues/130.
+    //
+    // FilterEntry::filter_entry previously required both predicates to be the
+    // same type, making it impossible to chain two different closures.
+    let dir = Dir::tmp();
+    dir.mkdirp("foo/bar/baz");
+    dir.mkdirp("quux/hidden");
+    dir.mkdirp("secret");
+
+    // Chain two filter_entry calls with distinct closure types.
+    // First filter: exclude "hidden" directories.
+    // Second filter: exclude "secret" directories.
+    let wd = WalkDir::new(dir.path())
+        .into_iter()
+        .filter_entry(|ent| ent.file_name() != "hidden")
+        .filter_entry(|ent| ent.file_name() != "secret");
+    let r = dir.run_recursive(wd);
+    r.assert_no_errors();
+
+    let expected = vec![
+        dir.path().to_path_buf(),
+        dir.join("foo"),
+        dir.join("foo").join("bar"),
+        dir.join("foo").join("bar").join("baz"),
+        dir.join("quux"),
+    ];
+    assert_eq!(expected, r.sorted_paths());
+}
+
+#[test]
 fn sort_by() {
     let dir = Dir::tmp();
     dir.mkdirp("foo/bar/baz/abc");
