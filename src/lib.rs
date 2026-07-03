@@ -1057,8 +1057,44 @@ pub struct FilterEntry<I, P> {
     predicate: P,
 }
 
-impl<P> Iterator for FilterEntry<IntoIter, P>
+/// A sealed trait for iterators that support skipping the current directory.
+///
+/// This trait is implemented by [`IntoIter`] and [`FilterEntry`], and is used
+/// as a bound on the inner iterator `I` in a blanket [`Iterator`] impl for
+/// `FilterEntry<I, P>`. This allows chaining multiple [`filter_entry`] calls
+/// with different predicate types.
+///
+/// [`IntoIter`]: struct.IntoIter.html
+/// [`FilterEntry`]: struct.FilterEntry.html
+/// [`filter_entry`]: struct.IntoIter.html#method.filter_entry
+pub trait SkipCurrentDir: Iterator<Item = Result<DirEntry>> {
+    /// Skips the current directory.
+    ///
+    /// This causes the iterator to stop traversing the contents of the least
+    /// recently yielded directory. This means any remaining entries in that
+    /// directory will be skipped (including sub-directories).
+    fn skip_current_dir(&mut self);
+}
+
+impl SkipCurrentDir for IntoIter {
+    fn skip_current_dir(&mut self) {
+        IntoIter::skip_current_dir(self);
+    }
+}
+
+impl<I, P> SkipCurrentDir for FilterEntry<I, P>
 where
+    I: SkipCurrentDir,
+    P: FnMut(&DirEntry) -> bool,
+{
+    fn skip_current_dir(&mut self) {
+        self.it.skip_current_dir();
+    }
+}
+
+impl<I, P> Iterator for FilterEntry<I, P>
+where
+    I: SkipCurrentDir,
     P: FnMut(&DirEntry) -> bool,
 {
     type Item = Result<DirEntry>;
@@ -1086,13 +1122,16 @@ where
     }
 }
 
-impl<P> iter::FusedIterator for FilterEntry<IntoIter, P> where
-    P: FnMut(&DirEntry) -> bool
+impl<I, P> iter::FusedIterator for FilterEntry<I, P>
+where
+    I: SkipCurrentDir + iter::FusedIterator,
+    P: FnMut(&DirEntry) -> bool,
 {
 }
 
-impl<P> FilterEntry<IntoIter, P>
+impl<I, P> FilterEntry<I, P>
 where
+    I: SkipCurrentDir,
     P: FnMut(&DirEntry) -> bool,
 {
     /// Yields only entries which satisfy the given predicate and skips
@@ -1141,7 +1180,10 @@ where
     /// [`skip_current_dir`]: #method.skip_current_dir
     /// [`min_depth`]: struct.WalkDir.html#method.min_depth
     /// [`max_depth`]: struct.WalkDir.html#method.max_depth
-    pub fn filter_entry(self, predicate: P) -> FilterEntry<Self, P> {
+    pub fn filter_entry<Q>(self, predicate: Q) -> FilterEntry<Self, Q>
+    where
+        Q: FnMut(&DirEntry) -> bool,
+    {
         FilterEntry { it: self, predicate }
     }
 
