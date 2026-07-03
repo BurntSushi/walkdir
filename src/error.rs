@@ -94,7 +94,7 @@ impl Error {
     ///
     /// > This is the original [`io::Error`] and is _not_ the same as
     /// > [`impl From<Error> for std::io::Error`][impl] which contains additional context about the
-    /// error.
+    /// > error.
     ///
     /// # Example
     ///
