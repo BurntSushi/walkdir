@@ -29,6 +29,7 @@ same-file = "1.0.1"
 # minimal-versions. Pin a current patch release for current nightly.
 version = "0.37.28"
 default-features = false
+features = ["use-libc"]
 
 [target.'cfg(not(windows))'.dependencies.fs-set-times]
 # cap-primitives permits fs-set-times 0.19.2, which moved to rustix 0.38
