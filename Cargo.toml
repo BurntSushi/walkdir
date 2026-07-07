@@ -51,7 +51,9 @@ version = "=0.2.155"
 version = "=1.20.3"
 
 [target.'cfg(windows)'.dependencies.winapi-util]
-version = "0.1.1"
+# Newer winapi-util patch releases moved to windows-sys/windows-link with an
+# MSRV above Rust 1.60.
+version = "=0.1.5"
 
 [dev-dependencies]
 doc-comment = "0.3"
