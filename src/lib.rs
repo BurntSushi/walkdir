@@ -118,7 +118,9 @@ use std::path::{Path, PathBuf};
 use std::result;
 use std::vec;
 
+#[cfg(unix)]
 use cap_std::ambient_authority;
+#[cfg(unix)]
 use cap_std::fs as capfs;
 #[cfg(not(unix))]
 use same_file::Handle;
@@ -550,6 +552,7 @@ impl IntoIterator for WalkDir {
             depth: 0,
             deferred_dirs: vec![],
             root_device: None,
+            #[cfg(unix)]
             cap_root: None,
         }
     }
@@ -609,6 +612,7 @@ pub struct IntoIter {
     root_device: Option<u64>,
     /// The root directory used to reopen descriptor-relative entries without
     /// storing open handles on yielded entries.
+    #[cfg(unix)]
     cap_root: Option<PathBuf>,
 }
 
@@ -703,6 +707,7 @@ enum DirList {
     /// [`Option<...>`]: https://doc.rust-lang.org/stable/std/option/enum.Option.html
     Opened { depth: usize, it: result::Result<ReadDir, Option<Error>> },
     /// An opened descriptor-relative handle.
+    #[cfg(unix)]
     CapOpened {
         depth: usize,
         parent_path: PathBuf,
@@ -731,15 +736,20 @@ impl Iterator for IntoIter {
                     .map_err(|e| Error::from_path(0, start.clone(), e));
                 self.root_device = Some(itry!(result));
             }
-            let mut dent = itry!(DirEntry::from_path(0, start, false));
+            let dent = itry!(DirEntry::from_path(0, start, false));
+            #[cfg(unix)]
+            let mut dent = dent;
             if dent.is_dir() {
-                if let Ok(dir) = capfs::Dir::open_ambient_dir(
-                    dent.path(),
-                    ambient_authority(),
-                ) {
-                    drop(dir);
-                    self.cap_root = Some(dent.path().to_path_buf());
-                    dent.set_cap_rel_path(PathBuf::new());
+                #[cfg(unix)]
+                {
+                    if let Ok(dir) = capfs::Dir::open_ambient_dir(
+                        dent.path(),
+                        ambient_authority(),
+                    ) {
+                        drop(dir);
+                        self.cap_root = Some(dent.path().to_path_buf());
+                        dent.set_cap_rel_path(PathBuf::new());
+                    }
                 }
             }
             if let Some(result) = self.handle_entry(dent) {
@@ -956,41 +966,57 @@ impl IntoIter {
             self.stack_list[self.oldest_opened].close();
         }
         // Open a handle to reading the directory's entries.
-        let mut list = if let (Some(root), Some(rel_path)) =
-            (self.cap_root.as_deref(), dent.cap_rel_path())
-        {
-            let dir = open_cap_dir(root, rel_path).map_err(|err| {
-                Some(Error::from_path(
-                    self.depth,
-                    dent.path().to_path_buf(),
-                    err,
-                ))
-            });
-            let rd = dir.and_then(|dir| {
-                dir.entries().map_err(|err| {
+        let mut list = {
+            #[cfg(unix)]
+            {
+                if let (Some(root), Some(rel_path)) =
+                    (self.cap_root.as_deref(), dent.cap_rel_path())
+                {
+                    let dir = open_cap_dir(root, rel_path).map_err(|err| {
+                        Some(Error::from_path(
+                            self.depth,
+                            dent.path().to_path_buf(),
+                            err,
+                        ))
+                    });
+                    let rd = dir.and_then(|dir| {
+                        dir.entries().map_err(|err| {
+                            Some(Error::from_path(
+                                self.depth,
+                                dent.path().to_path_buf(),
+                                err,
+                            ))
+                        })
+                    });
+                    DirList::CapOpened {
+                        depth: self.depth,
+                        parent_path: dent.path().to_path_buf(),
+                        parent_rel_path: rel_path.to_path_buf(),
+                        follow_links: self.opts.follow_links,
+                        it: rd,
+                    }
+                } else {
+                    let rd = fs::read_dir(dent.path()).map_err(|err| {
+                        Some(Error::from_path(
+                            self.depth,
+                            dent.path().to_path_buf(),
+                            err,
+                        ))
+                    });
+                    DirList::Opened { depth: self.depth, it: rd }
+                }
+            }
+            #[cfg(not(unix))]
+            {
+                let rd = fs::read_dir(dent.path()).map_err(|err| {
                     Some(Error::from_path(
                         self.depth,
                         dent.path().to_path_buf(),
                         err,
                     ))
-                })
-            });
-            DirList::CapOpened {
-                depth: self.depth,
-                parent_path: dent.path().to_path_buf(),
-                parent_rel_path: rel_path.to_path_buf(),
-                follow_links: self.opts.follow_links,
-                it: rd,
+                });
+                DirList::Opened { depth: self.depth, it: rd }
             }
-        } else {
-            let rd = fs::read_dir(dent.path()).map_err(|err| {
-                Some(Error::from_path(
-                    self.depth,
-                    dent.path().to_path_buf(),
-                    err,
-                ))
-            });
-            DirList::Opened { depth: self.depth, it: rd }
         };
         if let Some(ref mut cmp) = self.opts.sorter {
             let mut entries: Vec<_> = list.collect();
@@ -1041,26 +1067,41 @@ impl IntoIter {
     }
 
     fn follow(&self, mut dent: DirEntry) -> Result<DirEntry> {
-        dent = if let (Some(root), Some(rel_path)) =
-            (self.cap_root.as_deref(), dent.cap_rel_path())
+        #[cfg(unix)]
         {
-            match cap_metadata(root, rel_path) {
-                Ok(metadata) => DirEntry::from_path_metadata(
+            dent = if let (Some(root), Some(rel_path)) =
+                (self.cap_root.as_deref(), dent.cap_rel_path())
+            {
+                match cap_metadata(root, rel_path) {
+                    Ok(metadata) => DirEntry::from_path_metadata(
+                        self.depth,
+                        dent.path().to_path_buf(),
+                        true,
+                        metadata,
+                        Some(rel_path.to_path_buf()),
+                    ),
+                    Err(_) => DirEntry::from_path(
+                        self.depth,
+                        dent.path().to_path_buf(),
+                        true,
+                    )?,
+                }
+            } else {
+                DirEntry::from_path(
                     self.depth,
                     dent.path().to_path_buf(),
                     true,
-                    metadata,
-                    Some(rel_path.to_path_buf()),
-                ),
-                Err(_) => DirEntry::from_path(
-                    self.depth,
-                    dent.path().to_path_buf(),
-                    true,
-                )?,
+                )?
             }
-        } else {
-            DirEntry::from_path(self.depth, dent.path().to_path_buf(), true)?
-        };
+        }
+        #[cfg(not(unix))]
+        {
+            dent = DirEntry::from_path(
+                self.depth,
+                dent.path().to_path_buf(),
+                true,
+            )?;
+        }
         // The only way a symlink can cause a loop is if it points
         // to a directory. Otherwise, it always points to a leaf
         // and we can omit any loop checks.
@@ -1132,8 +1173,13 @@ impl iter::FusedIterator for IntoIter {}
 
 impl DirList {
     fn close(&mut self) {
-        if matches!(*self, DirList::Opened { .. } | DirList::CapOpened { .. })
-        {
+        let is_open = match *self {
+            DirList::Opened { .. } => true,
+            #[cfg(unix)]
+            DirList::CapOpened { .. } => true,
+            DirList::Closed(_) => false,
+        };
+        if is_open {
             *self = DirList::Closed(self.collect::<Vec<_>>().into_iter());
         }
     }
@@ -1153,6 +1199,7 @@ impl Iterator for DirList {
                     Err(err) => Err(Error::from_io(depth + 1, err)),
                 }),
             },
+            #[cfg(unix)]
             DirList::CapOpened {
                 depth,
                 ref parent_path,
@@ -1176,6 +1223,7 @@ impl Iterator for DirList {
     }
 }
 
+#[cfg(unix)]
 fn open_cap_dir(root: &Path, rel_path: &Path) -> io::Result<capfs::Dir> {
     let mut dir = capfs::Dir::open_ambient_dir(root, ambient_authority())?;
     for component in rel_path.components() {
@@ -1197,6 +1245,7 @@ fn open_cap_dir(root: &Path, rel_path: &Path) -> io::Result<capfs::Dir> {
     Ok(dir)
 }
 
+#[cfg(unix)]
 fn cap_metadata(root: &Path, rel_path: &Path) -> io::Result<fs::Metadata> {
     match open_cap_dir(root, rel_path) {
         Ok(dir) => return dir.into_std_file().metadata(),

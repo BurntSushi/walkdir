@@ -1,10 +1,13 @@
 use std::ffi::OsStr;
 use std::fmt;
 use std::fs::{self, FileType};
+#[cfg(unix)]
 use std::io;
 use std::path::{Path, PathBuf};
+#[cfg(unix)]
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+#[cfg(unix)]
 use cap_std::fs as capfs;
 
 use crate::error::Error;
@@ -136,9 +139,12 @@ impl DirEntry {
         if let Some(metadata) = &self.metadata {
             return Ok(metadata.clone());
         }
-        if self.cap_symlink && !self.follow_link {
-            return cap_symlink_metadata_placeholder()
-                .map_err(|err| Error::from_entry(self, err));
+        #[cfg(unix)]
+        {
+            if self.cap_symlink && !self.follow_link {
+                return cap_symlink_metadata_placeholder()
+                    .map_err(|err| Error::from_entry(self, err));
+            }
         }
 
         if self.follow_link {
@@ -187,31 +193,14 @@ impl DirEntry {
         self.ty.is_symlink() || self.cap_symlink
     }
 
+    #[cfg(unix)]
     pub(crate) fn cap_rel_path(&self) -> Option<&Path> {
         self.cap_rel_path.as_deref()
     }
 
+    #[cfg(unix)]
     pub(crate) fn set_cap_rel_path(&mut self, rel_path: PathBuf) {
         self.cap_rel_path = Some(rel_path);
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn from_path_metadata(
-        depth: usize,
-        path: PathBuf,
-        follow_link: bool,
-        metadata: fs::Metadata,
-        cap_rel_path: Option<PathBuf>,
-    ) -> DirEntry {
-        DirEntry {
-            path,
-            ty: metadata.file_type(),
-            follow_link,
-            cap_symlink: false,
-            depth,
-            metadata: Some(metadata),
-            cap_rel_path,
-        }
     }
 
     #[cfg(unix)]
@@ -231,25 +220,6 @@ impl DirEntry {
             cap_symlink: false,
             depth,
             ino: metadata.ino(),
-            metadata: Some(metadata),
-            cap_rel_path,
-        }
-    }
-
-    #[cfg(not(any(unix, windows)))]
-    pub(crate) fn from_path_metadata(
-        depth: usize,
-        path: PathBuf,
-        follow_link: bool,
-        metadata: fs::Metadata,
-        cap_rel_path: Option<PathBuf>,
-    ) -> DirEntry {
-        DirEntry {
-            path,
-            ty: metadata.file_type(),
-            follow_link,
-            cap_symlink: false,
-            depth,
             metadata: Some(metadata),
             cap_rel_path,
         }
@@ -396,6 +366,7 @@ impl DirEntry {
         })
     }
 
+    #[cfg(unix)]
     pub(crate) fn from_cap_entry(
         depth: usize,
         parent: &Path,
@@ -466,6 +437,7 @@ impl DirEntry {
     }
 }
 
+#[cfg(unix)]
 fn std_file_type_and_metadata(
     depth: usize,
     path: &Path,
@@ -513,10 +485,12 @@ fn std_file_type_and_metadata(
         .map_err(|err| Error::from_path(depth, path.to_path_buf(), err))
 }
 
+#[cfg(unix)]
 fn cap_symlink_placeholder() -> io::Result<FileType> {
     cap_symlink_metadata_placeholder().map(|md| md.file_type())
 }
 
+#[cfg(unix)]
 fn cap_symlink_metadata_placeholder() -> io::Result<fs::Metadata> {
     make_symlink_metadata_placeholder().map_err(|_| {
         io::Error::new(
@@ -526,6 +500,7 @@ fn cap_symlink_metadata_placeholder() -> io::Result<fs::Metadata> {
     })
 }
 
+#[cfg(unix)]
 fn make_symlink_metadata_placeholder() -> io::Result<fs::Metadata> {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
 
@@ -549,25 +524,6 @@ fn create_symlink<P: AsRef<Path>, Q: AsRef<Path>>(
     link: Q,
 ) -> io::Result<()> {
     std::os::unix::fs::symlink(target, link)
-}
-
-#[cfg(windows)]
-fn create_symlink<P: AsRef<Path>, Q: AsRef<Path>>(
-    target: P,
-    link: Q,
-) -> io::Result<()> {
-    std::os::windows::fs::symlink_file(target, link)
-}
-
-#[cfg(not(any(unix, windows)))]
-fn create_symlink<P: AsRef<Path>, Q: AsRef<Path>>(
-    _target: P,
-    _link: Q,
-) -> io::Result<()> {
-    Err(io::Error::new(
-        io::ErrorKind::Other,
-        "walkdir: symlink metadata placeholder unsupported on this platform",
-    ))
 }
 
 impl Clone for DirEntry {
