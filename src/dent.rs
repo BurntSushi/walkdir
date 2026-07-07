@@ -1,7 +1,11 @@
 use std::ffi::OsStr;
 use std::fmt;
 use std::fs::{self, FileType};
+use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+use cap_std::fs as capfs;
 
 use crate::error::Error;
 use crate::Result;
@@ -43,19 +47,20 @@ pub struct DirEntry {
     /// Is set when this entry was created from a symbolic link and the user
     /// expects the iterator to follow symbolic links.
     follow_link: bool,
+    /// Is set when descriptor-relative traversal can identify an entry as a
+    /// symbolic link but the ambient path is too long to construct a
+    /// `std::fs::FileType` for it.
+    cap_symlink: bool,
     /// The depth at which this entry was generated relative to the root.
     depth: usize,
     /// The underlying inode number (Unix only).
     #[cfg(unix)]
     ino: u64,
-    /// The underlying metadata (Windows only). We store this on Windows
-    /// because this comes for free while reading a directory.
-    ///
-    /// We use this to determine whether an entry is a directory or not, which
-    /// works around a bug in Rust's standard library:
-    /// https://github.com/rust-lang/rust/issues/46484
-    #[cfg(windows)]
-    metadata: fs::Metadata,
+    /// The underlying metadata when it was already needed to create the entry.
+    metadata: Option<fs::Metadata>,
+    /// The path to this entry relative to the traversal root, when it was
+    /// found through descriptor-relative traversal.
+    cap_rel_path: Option<PathBuf>,
 }
 
 impl DirEntry {
@@ -98,7 +103,7 @@ impl DirEntry {
     /// [`follow_links`]: struct.WalkDir.html#method.follow_links
     /// [`std::fs::read_link(entry.path())`]: https://doc.rust-lang.org/stable/std/fs/fn.read_link.html
     pub fn path_is_symlink(&self) -> bool {
-        self.ty.is_symlink() || self.follow_link
+        self.is_symlink() || self.follow_link
     }
 
     /// Return the metadata for the file that this entry points to.
@@ -127,18 +132,15 @@ impl DirEntry {
         self.metadata_internal()
     }
 
-    #[cfg(windows)]
-    fn metadata_internal(&self) -> Result<fs::Metadata> {
-        if self.follow_link {
-            fs::metadata(&self.path)
-        } else {
-            Ok(self.metadata.clone())
+    pub(crate) fn metadata_internal(&self) -> Result<fs::Metadata> {
+        if let Some(metadata) = &self.metadata {
+            return Ok(metadata.clone());
         }
-        .map_err(|err| Error::from_entry(self, err))
-    }
+        if self.cap_symlink && !self.follow_link {
+            return cap_symlink_metadata_placeholder()
+                .map_err(|err| Error::from_entry(self, err));
+        }
 
-    #[cfg(not(windows))]
-    fn metadata_internal(&self) -> Result<fs::Metadata> {
         if self.follow_link {
             fs::metadata(&self.path)
         } else {
@@ -181,6 +183,78 @@ impl DirEntry {
         self.ty.is_dir()
     }
 
+    pub(crate) fn is_symlink(&self) -> bool {
+        self.ty.is_symlink() || self.cap_symlink
+    }
+
+    pub(crate) fn cap_rel_path(&self) -> Option<&Path> {
+        self.cap_rel_path.as_deref()
+    }
+
+    pub(crate) fn set_cap_rel_path(&mut self, rel_path: PathBuf) {
+        self.cap_rel_path = Some(rel_path);
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn from_path_metadata(
+        depth: usize,
+        path: PathBuf,
+        follow_link: bool,
+        metadata: fs::Metadata,
+        cap_rel_path: Option<PathBuf>,
+    ) -> DirEntry {
+        DirEntry {
+            path,
+            ty: metadata.file_type(),
+            follow_link,
+            cap_symlink: false,
+            depth,
+            metadata: Some(metadata),
+            cap_rel_path,
+        }
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn from_path_metadata(
+        depth: usize,
+        path: PathBuf,
+        follow_link: bool,
+        metadata: fs::Metadata,
+        cap_rel_path: Option<PathBuf>,
+    ) -> DirEntry {
+        use std::os::unix::fs::MetadataExt;
+
+        DirEntry {
+            path,
+            ty: metadata.file_type(),
+            follow_link,
+            cap_symlink: false,
+            depth,
+            ino: metadata.ino(),
+            metadata: Some(metadata),
+            cap_rel_path,
+        }
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    pub(crate) fn from_path_metadata(
+        depth: usize,
+        path: PathBuf,
+        follow_link: bool,
+        metadata: fs::Metadata,
+        cap_rel_path: Option<PathBuf>,
+    ) -> DirEntry {
+        DirEntry {
+            path,
+            ty: metadata.file_type(),
+            follow_link,
+            cap_symlink: false,
+            depth,
+            metadata: Some(metadata),
+            cap_rel_path,
+        }
+    }
+
     #[cfg(windows)]
     pub(crate) fn from_entry(
         depth: usize,
@@ -193,7 +267,15 @@ impl DirEntry {
         let md = ent
             .metadata()
             .map_err(|err| Error::from_path(depth, path.clone(), err))?;
-        Ok(DirEntry { path, ty, follow_link: false, depth, metadata: md })
+        Ok(DirEntry {
+            path,
+            ty,
+            follow_link: false,
+            cap_symlink: false,
+            depth,
+            metadata: Some(md),
+            cap_rel_path: None,
+        })
     }
 
     #[cfg(unix)]
@@ -210,8 +292,11 @@ impl DirEntry {
             path: ent.path(),
             ty,
             follow_link: false,
+            cap_symlink: false,
             depth,
             ino: ent.ino(),
+            metadata: None,
+            cap_rel_path: None,
         })
     }
 
@@ -223,7 +308,15 @@ impl DirEntry {
         let ty = ent
             .file_type()
             .map_err(|err| Error::from_path(depth, ent.path(), err))?;
-        Ok(DirEntry { path: ent.path(), ty, follow_link: false, depth })
+        Ok(DirEntry {
+            path: ent.path(),
+            ty,
+            follow_link: false,
+            cap_symlink: false,
+            depth,
+            metadata: None,
+            cap_rel_path: None,
+        })
     }
 
     #[cfg(windows)]
@@ -243,8 +336,10 @@ impl DirEntry {
             path: pb,
             ty: md.file_type(),
             follow_link: follow,
+            cap_symlink: false,
             depth,
-            metadata: md,
+            metadata: Some(md),
+            cap_rel_path: None,
         })
     }
 
@@ -263,12 +358,16 @@ impl DirEntry {
             fs::symlink_metadata(&pb)
                 .map_err(|err| Error::from_path(depth, pb.clone(), err))?
         };
+        let ty = md.file_type();
         Ok(DirEntry {
             path: pb,
-            ty: md.file_type(),
+            ty,
             follow_link: follow,
+            cap_symlink: false,
             depth,
             ino: md.ino(),
+            metadata: None,
+            cap_rel_path: None,
         })
     }
 
@@ -285,13 +384,193 @@ impl DirEntry {
             fs::symlink_metadata(&pb)
                 .map_err(|err| Error::from_path(depth, pb.clone(), err))?
         };
+        let ty = md.file_type();
         Ok(DirEntry {
             path: pb,
-            ty: md.file_type(),
+            ty,
             follow_link: follow,
+            cap_symlink: false,
             depth,
+            metadata: Some(md),
+            cap_rel_path: None,
         })
     }
+
+    pub(crate) fn from_cap_entry(
+        depth: usize,
+        parent: &Path,
+        parent_rel_path: &Path,
+        ent: capfs::DirEntry,
+        follow_links: bool,
+    ) -> Result<DirEntry> {
+        let file_name = ent.file_name();
+        let path = parent.join(&file_name);
+        let rel_path = parent_rel_path.join(&file_name);
+        let cap_ty = ent
+            .file_type()
+            .map_err(|err| Error::from_path(depth, path.clone(), err))?;
+        let (ty, metadata) = std_file_type_and_metadata(
+            depth,
+            &path,
+            &ent,
+            cap_ty,
+            follow_links,
+        )?;
+
+        #[cfg(unix)]
+        {
+            use cap_std::fs::MetadataExt as CapMetadataExt;
+            use std::os::unix::fs::MetadataExt as StdMetadataExt;
+
+            let ino = metadata.as_ref().map_or_else(
+                || {
+                    ent.metadata().map(|md| CapMetadataExt::ino(&md)).map_err(
+                        |err| Error::from_path(depth, path.clone(), err),
+                    )
+                },
+                |md| Ok(StdMetadataExt::ino(md)),
+            )?;
+            return Ok(DirEntry {
+                path,
+                ty,
+                follow_link: false,
+                cap_symlink: cap_ty.is_symlink(),
+                depth,
+                ino,
+                metadata,
+                cap_rel_path: Some(rel_path),
+            });
+        }
+
+        #[cfg(windows)]
+        {
+            return Ok(DirEntry {
+                path,
+                ty,
+                follow_link: false,
+                cap_symlink: cap_ty.is_symlink(),
+                depth,
+                metadata,
+                cap_rel_path: Some(rel_path),
+            });
+        }
+
+        #[cfg(not(any(unix, windows)))]
+        {
+            Ok(DirEntry {
+                path,
+                ty,
+                follow_link: false,
+                cap_symlink: cap_ty.is_symlink(),
+                depth,
+                metadata,
+                cap_rel_path: Some(rel_path),
+            })
+        }
+    }
+}
+
+fn std_file_type_and_metadata(
+    depth: usize,
+    path: &Path,
+    ent: &capfs::DirEntry,
+    cap_ty: capfs::FileType,
+    _follow_links: bool,
+) -> Result<(FileType, Option<fs::Metadata>)> {
+    if let Ok(md) = fs::symlink_metadata(path) {
+        let ty = md.file_type();
+        return Ok((ty, None));
+    }
+
+    if cap_ty.is_dir() {
+        let dir = ent
+            .open_dir()
+            .map_err(|err| Error::from_path(depth, path.to_path_buf(), err))?;
+        let std_file = dir.into_std_file();
+        let md = std_file
+            .metadata()
+            .map_err(|err| Error::from_path(depth, path.to_path_buf(), err))?;
+        let ty = md.file_type();
+        return Ok((ty, Some(md)));
+    }
+
+    if cap_ty.is_file() {
+        let file = ent
+            .open()
+            .map_err(|err| Error::from_path(depth, path.to_path_buf(), err))?;
+        let md = file
+            .into_std()
+            .metadata()
+            .map_err(|err| Error::from_path(depth, path.to_path_buf(), err))?;
+        let ty = md.file_type();
+        return Ok((ty, Some(md)));
+    }
+
+    if cap_ty.is_symlink() {
+        let ty = cap_symlink_placeholder()
+            .map_err(|err| Error::from_path(depth, path.to_path_buf(), err))?;
+        return Ok((ty, None));
+    }
+
+    fs::symlink_metadata(path)
+        .map(|md| (md.file_type(), Some(md)))
+        .map_err(|err| Error::from_path(depth, path.to_path_buf(), err))
+}
+
+fn cap_symlink_placeholder() -> io::Result<FileType> {
+    cap_symlink_metadata_placeholder().map(|md| md.file_type())
+}
+
+fn cap_symlink_metadata_placeholder() -> io::Result<fs::Metadata> {
+    static METADATA: OnceLock<Option<fs::Metadata>> = OnceLock::new();
+    METADATA
+        .get_or_init(|| make_symlink_metadata_placeholder().ok())
+        .clone()
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::Other,
+                "walkdir: could not create symlink metadata placeholder",
+            )
+        })
+}
+
+fn make_symlink_metadata_placeholder() -> io::Result<fs::Metadata> {
+    let root = std::env::temp_dir()
+        .join(format!("walkdir-symlink-metadata-{}", std::process::id()));
+    let link = root.join("link");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir(&root)?;
+    create_symlink("target", &link)?;
+    let metadata = fs::symlink_metadata(&link);
+    let _ = fs::remove_dir_all(&root);
+    metadata
+}
+
+#[cfg(unix)]
+fn create_symlink<P: AsRef<Path>, Q: AsRef<Path>>(
+    target: P,
+    link: Q,
+) -> io::Result<()> {
+    std::os::unix::fs::symlink(target, link)
+}
+
+#[cfg(windows)]
+fn create_symlink<P: AsRef<Path>, Q: AsRef<Path>>(
+    target: P,
+    link: Q,
+) -> io::Result<()> {
+    std::os::windows::fs::symlink_file(target, link)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn create_symlink<P: AsRef<Path>, Q: AsRef<Path>>(
+    _target: P,
+    _link: Q,
+) -> io::Result<()> {
+    Err(io::Error::new(
+        io::ErrorKind::Other,
+        "walkdir: symlink metadata placeholder unsupported on this platform",
+    ))
 }
 
 impl Clone for DirEntry {
@@ -301,8 +580,10 @@ impl Clone for DirEntry {
             path: self.path.clone(),
             ty: self.ty,
             follow_link: self.follow_link,
+            cap_symlink: self.cap_symlink,
             depth: self.depth,
             metadata: self.metadata.clone(),
+            cap_rel_path: self.cap_rel_path.clone(),
         }
     }
 
@@ -312,8 +593,11 @@ impl Clone for DirEntry {
             path: self.path.clone(),
             ty: self.ty,
             follow_link: self.follow_link,
+            cap_symlink: self.cap_symlink,
             depth: self.depth,
             ino: self.ino,
+            metadata: self.metadata.clone(),
+            cap_rel_path: self.cap_rel_path.clone(),
         }
     }
 
@@ -323,7 +607,10 @@ impl Clone for DirEntry {
             path: self.path.clone(),
             ty: self.ty,
             follow_link: self.follow_link,
+            cap_symlink: self.cap_symlink,
             depth: self.depth,
+            metadata: self.metadata.clone(),
+            cap_rel_path: self.cap_rel_path.clone(),
         }
     }
 }
