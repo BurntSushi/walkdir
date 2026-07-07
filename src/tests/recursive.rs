@@ -253,6 +253,312 @@ fn nested() {
 }
 
 #[test]
+#[cfg(unix)]
+fn nested_beyond_path_max() {
+    let tree = match long_path::LongTree::create() {
+        Ok(Some(tree)) => tree,
+        Ok(None) => return,
+        Err(err) => panic!("failed to create long-path fixture: {}", err),
+    };
+
+    assert_walk_visits_long_leaf(WalkDir::new(tree.walk_root()), &tree);
+}
+
+#[test]
+#[cfg(unix)]
+fn nested_beyond_path_max_with_small_max_open() {
+    let tree = match long_path::LongTree::create() {
+        Ok(Some(tree)) => tree,
+        Ok(None) => return,
+        Err(err) => panic!("failed to create long-path fixture: {}", err),
+    };
+
+    assert_walk_visits_long_leaf(
+        WalkDir::new(tree.walk_root()).max_open(1),
+        &tree,
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn nested_beyond_path_max_follow_link() {
+    let tree = match long_path::LongTree::create_with_link() {
+        Ok(Some(tree)) => tree,
+        Ok(None) => return,
+        Err(err) => panic!("failed to create long-path fixture: {}", err),
+    };
+
+    let wd = WalkDir::new(tree.walk_root()).follow_links(true);
+    assert_walk_follows_long_link(wd, &tree);
+}
+
+#[test]
+#[cfg(unix)]
+fn nested_beyond_path_max_follow_link_same_file_system() {
+    let tree = match long_path::LongTree::create_with_link() {
+        Ok(Some(tree)) => tree,
+        Ok(None) => return,
+        Err(err) => panic!("failed to create long-path fixture: {}", err),
+    };
+
+    let wd = WalkDir::new(tree.walk_root())
+        .follow_links(true)
+        .same_file_system(true);
+    assert_walk_follows_long_link(wd, &tree);
+}
+
+#[test]
+#[cfg(unix)]
+fn nested_beyond_path_max_nofollow_link() {
+    let tree = match long_path::LongTree::create_with_link() {
+        Ok(Some(tree)) => tree,
+        Ok(None) => return,
+        Err(err) => panic!("failed to create long-path fixture: {}", err),
+    };
+
+    assert_walk_does_not_follow_long_link(
+        WalkDir::new(tree.walk_root()),
+        &tree,
+    );
+}
+
+#[cfg(unix)]
+fn assert_walk_visits_long_leaf(wd: WalkDir, tree: &long_path::LongTree) {
+    use std::ffi::OsStr;
+
+    let mut ents = vec![];
+    let mut errs = vec![];
+    for result in wd {
+        match result {
+            Ok(ent) => ents.push(ent),
+            Err(err) => errs.push(err),
+        }
+    }
+
+    assert!(errs.is_empty(), "expected no traversal errors: {:?}", errs);
+    let leaf = ents
+        .iter()
+        .find(|ent| ent.file_name() == OsStr::new(long_path::LEAF))
+        .expect("expected to visit sentinel leaf beyond PATH_MAX");
+
+    assert!(
+        long_path::byte_len(leaf.path()) > tree.path_max(),
+        "sentinel path should exceed PATH_MAX"
+    );
+    assert_eq!(tree.leaf_depth(), leaf.depth());
+    assert!(leaf.file_type().is_file());
+    assert_eq!(0, leaf.metadata().expect("metadata").len());
+}
+
+#[cfg(unix)]
+fn assert_walk_follows_long_link(wd: WalkDir, tree: &long_path::LongTree) {
+    use std::ffi::OsStr;
+
+    let mut ents = vec![];
+    let mut errs = vec![];
+    for result in wd {
+        match result {
+            Ok(ent) => ents.push(ent),
+            Err(err) => errs.push(err),
+        }
+    }
+
+    assert!(errs.is_empty(), "expected no traversal errors: {:?}", errs);
+
+    let link = ents
+        .iter()
+        .find(|ent| ent.file_name() == OsStr::new(long_path::LINK_DIR))
+        .expect("expected to visit symlink directory beyond PATH_MAX");
+    assert!(link.path_is_symlink());
+    assert!(link.file_type().is_dir());
+    assert_eq!(tree.link_depth(), link.depth());
+    assert!(
+        long_path::byte_len(link.path()) > tree.path_max(),
+        "symlink directory path should exceed PATH_MAX"
+    );
+
+    let leaf = ents
+        .iter()
+        .find(|ent| {
+            ent.file_name() == OsStr::new(long_path::LINK_LEAF)
+                && ent.path().parent().and_then(|p| p.file_name())
+                    == Some(OsStr::new(long_path::LINK_DIR))
+        })
+        .expect("expected to visit leaf through symlink beyond PATH_MAX");
+    assert_eq!(tree.link_depth() + 1, leaf.depth());
+    assert!(leaf.file_type().is_file());
+    assert_eq!(0, leaf.metadata().expect("metadata").len());
+}
+
+#[cfg(unix)]
+fn assert_walk_does_not_follow_long_link(
+    wd: WalkDir,
+    tree: &long_path::LongTree,
+) {
+    use std::ffi::OsStr;
+
+    let mut ents = vec![];
+    let mut errs = vec![];
+    for result in wd {
+        match result {
+            Ok(ent) => ents.push(ent),
+            Err(err) => errs.push(err),
+        }
+    }
+
+    assert!(errs.is_empty(), "expected no traversal errors: {:?}", errs);
+
+    let link = ents
+        .iter()
+        .find(|ent| ent.file_name() == OsStr::new(long_path::LINK_DIR))
+        .expect("expected to visit symlink directory beyond PATH_MAX");
+    assert!(link.path_is_symlink());
+    assert!(link.file_type().is_symlink());
+    assert!(link.metadata().expect("metadata").file_type().is_symlink());
+    assert_eq!(tree.link_depth(), link.depth());
+    assert!(
+        long_path::byte_len(link.path()) > tree.path_max(),
+        "symlink directory path should exceed PATH_MAX"
+    );
+
+    assert!(
+        !ents.iter().any(|ent| {
+            ent.file_name() == OsStr::new(long_path::LINK_LEAF)
+                && ent.path().parent().and_then(|p| p.file_name())
+                    == Some(OsStr::new(long_path::LINK_DIR))
+        }),
+        "unfollowed symlink should not be descended into",
+    );
+}
+
+#[cfg(unix)]
+mod long_path {
+    use std::fs;
+    use std::io;
+    use std::os::unix::ffi::OsStrExt;
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use cap_std::{ambient_authority, fs::Dir};
+
+    pub const LEAF: &str = "needle.txt";
+    pub const LINK_DIR: &str = "link-dir";
+    pub const LINK_LEAF: &str = "link-needle.txt";
+    const LINK_TARGET: &str = "link-target";
+    const ASSUMED_PATH_MAX: usize = 4096;
+
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+
+    pub struct LongTree {
+        root: PathBuf,
+        walk_root: PathBuf,
+        path_max: usize,
+        depth: usize,
+        root_dir: Option<Dir>,
+    }
+
+    impl LongTree {
+        pub fn create() -> io::Result<Option<LongTree>> {
+            Self::create_imp(false)
+        }
+
+        pub fn create_with_link() -> io::Result<Option<LongTree>> {
+            Self::create_imp(true)
+        }
+
+        fn create_imp(with_link: bool) -> io::Result<Option<LongTree>> {
+            let root =
+                std::env::temp_dir().join("walkdir-long-path").join(format!(
+                    "{}-{}",
+                    std::process::id(),
+                    NEXT.fetch_add(1, Ordering::Relaxed)
+                ));
+
+            fs::create_dir_all(&root)?;
+            let root_dir = Dir::open_ambient_dir(&root, ambient_authority())?;
+            let path_max = ASSUMED_PATH_MAX;
+
+            let _ = root_dir.remove_dir_all("tree");
+            root_dir.create_dir("tree")?;
+            let mut cur = root_dir.open_dir("tree")?;
+            let mut rel = PathBuf::from("tree");
+            let component = "d".repeat(64);
+            let mut depth = 0;
+
+            while byte_len(&root.join(&rel))
+                <= path_max + component.len() + LEAF.len()
+            {
+                if let Err(err) = cur.create_dir(&component) {
+                    cleanup(&root_dir, &root);
+                    return if byte_len(&root.join(&rel)) > path_max {
+                        Ok(None)
+                    } else {
+                        Err(err)
+                    };
+                }
+                cur = cur.open_dir(&component)?;
+                rel.push(&component);
+                depth += 1;
+            }
+
+            cur.create(LEAF)?;
+            if with_link {
+                cur.create_dir(LINK_TARGET)?;
+                cur.open_dir(LINK_TARGET)?.create(LINK_LEAF)?;
+                cur.symlink(LINK_TARGET, LINK_DIR)?;
+            }
+
+            let walk_root = root_dir_path(&root);
+            Ok(Some(LongTree {
+                root,
+                walk_root,
+                path_max,
+                depth,
+                root_dir: Some(root_dir),
+            }))
+        }
+
+        pub fn walk_root(&self) -> &Path {
+            &self.walk_root
+        }
+
+        pub fn path_max(&self) -> usize {
+            self.path_max
+        }
+
+        pub fn leaf_depth(&self) -> usize {
+            self.depth + 1
+        }
+
+        pub fn link_depth(&self) -> usize {
+            self.depth + 1
+        }
+    }
+
+    impl Drop for LongTree {
+        fn drop(&mut self) {
+            if let Some(root_dir) = self.root_dir.take() {
+                let _ = root_dir.remove_dir_all("tree");
+            }
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    pub fn byte_len(path: &Path) -> usize {
+        path.as_os_str().as_bytes().len()
+    }
+
+    fn root_dir_path(root: &Path) -> PathBuf {
+        root.join("tree")
+    }
+
+    fn cleanup(root_dir: &Dir, root: &Path) {
+        let _ = root_dir.remove_dir_all("tree");
+        let _ = fs::remove_dir_all(root);
+    }
+}
+
+#[test]
 fn nested_small_max_open() {
     let nested =
         PathBuf::from("a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z");
