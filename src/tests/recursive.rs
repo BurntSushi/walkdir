@@ -433,7 +433,6 @@ fn assert_walk_does_not_follow_long_link(
 
 #[cfg(unix)]
 mod long_path {
-    use std::ffi::CString;
     use std::fs;
     use std::io;
     use std::os::unix::ffi::OsStrExt;
@@ -446,6 +445,7 @@ mod long_path {
     pub const LINK_DIR: &str = "link-dir";
     pub const LINK_LEAF: &str = "link-needle.txt";
     const LINK_TARGET: &str = "link-target";
+    const ASSUMED_PATH_MAX: usize = 4096;
 
     static NEXT: AtomicUsize = AtomicUsize::new(0);
 
@@ -476,7 +476,7 @@ mod long_path {
 
             fs::create_dir_all(&root)?;
             let root_dir = Dir::open_ambient_dir(&root, ambient_authority())?;
-            let path_max = path_max(&root).unwrap_or(4096);
+            let path_max = ASSUMED_PATH_MAX;
 
             let _ = root_dir.remove_dir_all("tree");
             root_dir.create_dir("tree")?;
@@ -550,12 +550,6 @@ mod long_path {
 
     fn root_dir_path(root: &Path) -> PathBuf {
         root.join("tree")
-    }
-
-    fn path_max(path: &Path) -> Option<usize> {
-        let c_path = CString::new(path.as_os_str().as_bytes()).ok()?;
-        let n = unsafe { libc::pathconf(c_path.as_ptr(), libc::_PC_PATH_MAX) };
-        (n > 0).then_some(n as usize)
     }
 
     fn cleanup(root_dir: &Dir, root: &Path) {

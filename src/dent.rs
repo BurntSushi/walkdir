@@ -3,7 +3,7 @@ use std::fmt;
 use std::fs::{self, FileType};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use cap_std::fs as capfs;
 
@@ -419,15 +419,11 @@ impl DirEntry {
 
         #[cfg(unix)]
         {
-            use cap_std::fs::MetadataExt as CapMetadataExt;
+            use rustix::fs::DirEntryExt as CapDirEntryExt;
             use std::os::unix::fs::MetadataExt as StdMetadataExt;
 
             let ino = metadata.as_ref().map_or_else(
-                || {
-                    ent.metadata().map(|md| CapMetadataExt::ino(&md)).map_err(
-                        |err| Error::from_path(depth, path.clone(), err),
-                    )
-                },
+                || Ok(CapDirEntryExt::ino(&ent)),
                 |md| Ok(StdMetadataExt::ino(md)),
             )?;
             return Ok(DirEntry {
@@ -479,7 +475,7 @@ fn std_file_type_and_metadata(
 ) -> Result<(FileType, Option<fs::Metadata>)> {
     if let Ok(md) = fs::symlink_metadata(path) {
         let ty = md.file_type();
-        return Ok((ty, None));
+        return Ok((ty, Some(md)));
     }
 
     if cap_ty.is_dir() {
@@ -522,21 +518,22 @@ fn cap_symlink_placeholder() -> io::Result<FileType> {
 }
 
 fn cap_symlink_metadata_placeholder() -> io::Result<fs::Metadata> {
-    static METADATA: OnceLock<Option<fs::Metadata>> = OnceLock::new();
-    METADATA
-        .get_or_init(|| make_symlink_metadata_placeholder().ok())
-        .clone()
-        .ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                "walkdir: could not create symlink metadata placeholder",
-            )
-        })
+    make_symlink_metadata_placeholder().map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::Other,
+            "walkdir: could not create symlink metadata placeholder",
+        )
+    })
 }
 
 fn make_symlink_metadata_placeholder() -> io::Result<fs::Metadata> {
-    let root = std::env::temp_dir()
-        .join(format!("walkdir-symlink-metadata-{}", std::process::id()));
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+
+    let root = std::env::temp_dir().join(format!(
+        "walkdir-symlink-metadata-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
     let link = root.join("link");
     let _ = fs::remove_dir_all(&root);
     fs::create_dir(&root)?;

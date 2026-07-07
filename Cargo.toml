@@ -21,18 +21,31 @@ appveyor = { repository = "BurntSushi/walkdir" }
 members = ["walkdir-list"]
 
 [dependencies]
-cap-std = { version = "4.0.2", default-features = false }
+cap-std = { version = "1.0.15", default-features = false }
 same-file = "1.0.1"
 
 [target.'cfg(not(windows))'.dependencies.rustix]
-# cap-std's dependency tree still permits old rustix 0.38 releases under
-# minimal-versions. rustix 0.38.0 does not build on current nightly.
-version = "0.38.44"
+# cap-std's dependency tree still permits old rustix 0.37 releases under
+# minimal-versions. Pin a current patch release for current nightly.
+version = "0.37.28"
 default-features = false
+
+[target.'cfg(not(windows))'.dependencies.fs-set-times]
+# cap-primitives permits fs-set-times 0.19.2, which moved to rustix 0.38
+# and raises the effective MSRV above walkdir's Rust 1.60 floor.
+version = "=0.19.1"
+
+[target.'cfg(not(windows))'.dependencies.itoa]
+# rustix 0.37 permits newer itoa patch releases whose MSRV is above Rust 1.60.
+version = "=1.0.15"
+
+[target.'cfg(not(windows))'.dependencies.libc]
+# rustix and io-lifetimes permit newer libc patch releases whose MSRV is
+# above Rust 1.60.
+version = "=0.2.155"
 
 [target.'cfg(windows)'.dependencies.winapi-util]
 version = "0.1.1"
 
 [dev-dependencies]
 doc-comment = "0.3"
-libc = "0.2.186"
