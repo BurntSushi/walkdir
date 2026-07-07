@@ -1,6 +1,8 @@
-use std::fs;
 use std::io;
 use std::path::Path;
+
+#[cfg(not(windows))]
+use std::fs;
 
 #[cfg(unix)]
 pub fn device_num<P: AsRef<Path>>(path: P) -> io::Result<u64> {
@@ -22,13 +24,6 @@ pub fn device_num<P: AsRef<Path>>(path: P) -> io::Result<u64> {
 
     let h = Handle::from_path_any(path)?;
     file::information(h).map(|info| info.volume_serial_number())
-}
-
-#[cfg(windows)]
-pub fn device_num_from_metadata(md: &fs::Metadata) -> io::Result<u64> {
-    use std::os::windows::fs::MetadataExt;
-
-    Ok(md.volume_serial_number().unwrap_or(0))
 }
 
 #[cfg(not(any(unix, windows)))]

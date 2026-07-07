@@ -1107,9 +1107,16 @@ impl IntoIter {
     }
 
     fn is_same_file_system(&mut self, dent: &DirEntry) -> Result<bool> {
-        let md = dent.metadata_internal()?;
-        let dent_device = util::device_num_from_metadata(&md)
+        #[cfg(windows)]
+        let dent_device = util::device_num(dent.path())
             .map_err(|err| Error::from_entry(dent, err))?;
+
+        #[cfg(not(windows))]
+        let dent_device = {
+            let md = dent.metadata_internal()?;
+            util::device_num_from_metadata(&md)
+                .map_err(|err| Error::from_entry(dent, err))?
+        };
         Ok(self
             .root_device
             .map(|d| d == dent_device)

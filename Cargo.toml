@@ -24,6 +24,12 @@ members = ["walkdir-list"]
 cap-std = { version = "4.0.2", default-features = false }
 same-file = "1.0.1"
 
+[target.'cfg(not(windows))'.dependencies.rustix]
+# cap-std's dependency tree still permits old rustix 0.38 releases under
+# minimal-versions. rustix 0.38.0 does not build on current nightly.
+version = "0.38.44"
+default-features = false
+
 [target.'cfg(windows)'.dependencies.winapi-util]
 version = "0.1.1"
 
