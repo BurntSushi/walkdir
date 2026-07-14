@@ -1,13 +1,17 @@
 use std::env;
 use std::error;
+#[cfg(unix)]
+use std::ffi::OsString;
 use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::result;
 
+#[cfg(unix)]
+use crate::os::unix;
 use crate::{DirEntry, Error};
 
-/// Skip the current test if the environment cannot create symlinks.
+/// Skip the current test if the current environment doesn't support symlinks.
 #[macro_export]
 macro_rules! skip_if_no_symlinks {
     () => {
@@ -81,6 +85,48 @@ impl RecursiveResults {
     }
 }
 
+/// The result of running a Unix directory iterator on a single directory.
+#[cfg(unix)]
+#[derive(Debug)]
+pub struct UnixResults {
+    ents: Vec<unix::DirEntry>,
+    errs: Vec<io::Error>,
+}
+
+#[cfg(unix)]
+impl UnixResults {
+    /// Assert that no errors have occurred.
+    pub fn assert_no_errors(&self) {
+        assert!(
+            self.errs.is_empty(),
+            "expected to find no errors, but found: {:?}",
+            self.errs
+        );
+    }
+
+    /// Return all the successfully retrieved directory entries in the order
+    /// in which they were retrieved.
+    pub fn ents(&self) -> &[unix::DirEntry] {
+        &self.ents
+    }
+
+    /// Return all the successfully retrieved directory entries, sorted
+    /// lexicographically by their file name.
+    pub fn sorted_ents(&self) -> Vec<unix::DirEntry> {
+        let mut ents = self.ents.clone();
+        ents.sort_by(|e1, e2| e1.file_name_bytes().cmp(e2.file_name_bytes()));
+        ents
+    }
+
+    /// Return all file names from all successfully retrieved directory
+    /// entries, sorted lexicographically.
+    ///
+    /// This does not include file names that correspond to an error.
+    pub fn sorted_file_names(&self) -> Vec<OsString> {
+        self.sorted_ents().into_iter().map(|d| d.into_file_name_os()).collect()
+    }
+}
+
 /// A helper for managing a directory in which to run tests.
 ///
 /// When manipulating paths within this directory, paths are interpreted
@@ -123,6 +169,44 @@ impl Dir {
         results
     }
 
+    #[cfg(unix)]
+    pub fn run_unix(&self, udir: &mut unix::Dir) -> UnixResults {
+        let mut results = UnixResults { ents: vec![], errs: vec![] };
+        while let Some(result) = udir.read() {
+            match result {
+                Ok(ent) => results.ents.push(ent),
+                Err(err) => results.errs.push(err),
+            }
+        }
+        results
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn run_linux(&self, dirfd: &mut unix::DirFd) -> UnixResults {
+        use crate::os::linux::{getdents, DirEntryCursor};
+        use std::os::unix::io::AsRawFd;
+
+        let mut results = UnixResults { ents: vec![], errs: vec![] };
+        let mut cursor = DirEntryCursor::new();
+        loop {
+            match getdents(dirfd.as_raw_fd(), &mut cursor) {
+                Err(err) => {
+                    results.errs.push(err);
+                    break;
+                }
+                Ok(false) => {
+                    break;
+                }
+                Ok(true) => {
+                    while let Some(ent) = cursor.read_unix() {
+                        results.ents.push(ent);
+                    }
+                }
+            }
+        }
+        results
+    }
+
     /// Create a directory at the given path, while creating all intermediate
     /// directories as needed.
     pub fn mkdirp<P: AsRef<Path>>(&self, path: P) {
@@ -159,29 +243,7 @@ impl Dir {
         src: P1,
         link_name: P2,
     ) {
-        #[cfg(windows)]
-        fn imp(src: &Path, link_name: &Path) -> io::Result<()> {
-            use std::os::windows::fs::symlink_file;
-            symlink_file(src, link_name)
-        }
-
-        #[cfg(unix)]
-        fn imp(src: &Path, link_name: &Path) -> io::Result<()> {
-            use std::os::unix::fs::symlink;
-            symlink(src, link_name)
-        }
-
-        let (src, link_name) = (self.join(src), self.join(link_name));
-        imp(&src, &link_name)
-            .map_err(|e| {
-                err!(
-                    "failed to symlink file {} with target {}: {}",
-                    src.display(),
-                    link_name.display(),
-                    e
-                )
-            })
-            .unwrap()
+        symlink_file(self.join(src), self.join(link_name)).unwrap()
     }
 
     /// Create a directory symlink to the given src with the given link name.
@@ -190,29 +252,7 @@ impl Dir {
         src: P1,
         link_name: P2,
     ) {
-        #[cfg(windows)]
-        fn imp(src: &Path, link_name: &Path) -> io::Result<()> {
-            use std::os::windows::fs::symlink_dir;
-            symlink_dir(src, link_name)
-        }
-
-        #[cfg(unix)]
-        fn imp(src: &Path, link_name: &Path) -> io::Result<()> {
-            use std::os::unix::fs::symlink;
-            symlink(src, link_name)
-        }
-
-        let (src, link_name) = (self.join(src), self.join(link_name));
-        imp(&src, &link_name)
-            .map_err(|e| {
-                err!(
-                    "failed to symlink directory {} with target {}: {}",
-                    src.display(),
-                    link_name.display(),
-                    e
-                )
-            })
-            .unwrap()
+        symlink_dir(self.join(src), self.join(link_name)).unwrap()
     }
 }
 
@@ -262,21 +302,35 @@ impl TempDir {
     }
 }
 
-#[cfg(any(unix, windows))]
+/// Test whether file symlinks are believed to work on in this environment.
+///
+/// If they work, then return true, otherwise return false.
 pub fn symlink_file_works() -> bool {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    // 0 = untried
+    // 1 = works
+    // 2 = does not work
     static WORKS: AtomicUsize = AtomicUsize::new(0);
+
     let status = WORKS.load(Ordering::SeqCst);
     if status != 0 {
         return status == 1;
     }
 
     let tmp = TempDir::new().unwrap();
-    let file = tmp.path().join("file");
-    let link = tmp.path().join("link");
-    File::create(&file).unwrap();
-    if create_file_symlink(&file, &link).is_err() || fs::read(&link).is_err() {
+    let foo = tmp.path().join("foo");
+    let foolink = tmp.path().join("foo-link");
+    File::create(&foo)
+        .map_err(|e| {
+            err!("error creating file {} for link test: {}", foo.display(), e)
+        })
+        .unwrap();
+    if symlink_file(&foo, &foolink).is_err() {
+        WORKS.store(2, Ordering::SeqCst);
+        return false;
+    }
+    if fs::read(&foolink).is_err() {
         WORKS.store(2, Ordering::SeqCst);
         return false;
     }
@@ -284,19 +338,56 @@ pub fn symlink_file_works() -> bool {
     true
 }
 
-#[cfg(not(any(unix, windows)))]
-pub fn symlink_file_works() -> bool {
-    false
+/// Create a file symlink to the given src with the given link name.
+fn symlink_file<P1: AsRef<Path>, P2: AsRef<Path>>(
+    src: P1,
+    link_name: P2,
+) -> Result<()> {
+    #[cfg(windows)]
+    fn imp(src: &Path, link_name: &Path) -> io::Result<()> {
+        use std::os::windows::fs::symlink_file;
+        symlink_file(src, link_name)
+    }
+
+    #[cfg(unix)]
+    fn imp(src: &Path, link_name: &Path) -> io::Result<()> {
+        use std::os::unix::fs::symlink;
+        symlink(src, link_name)
+    }
+
+    imp(src.as_ref(), link_name.as_ref()).map_err(|e| {
+        err!(
+            "failed to symlink file {} with target {}: {}",
+            src.as_ref().display(),
+            link_name.as_ref().display(),
+            e
+        )
+    })
 }
 
-#[cfg(any(unix, windows))]
-fn create_file_symlink(src: &Path, link: &Path) -> io::Result<()> {
-    #[cfg(unix)]
-    {
-        std::os::unix::fs::symlink(src, link)
-    }
+/// Create a directory symlink to the given src with the given link name.
+fn symlink_dir<P1: AsRef<Path>, P2: AsRef<Path>>(
+    src: P1,
+    link_name: P2,
+) -> Result<()> {
     #[cfg(windows)]
-    {
-        std::os::windows::fs::symlink_file(src, link)
+    fn imp(src: &Path, link_name: &Path) -> io::Result<()> {
+        use std::os::windows::fs::symlink_dir;
+        symlink_dir(src, link_name)
     }
+
+    #[cfg(unix)]
+    fn imp(src: &Path, link_name: &Path) -> io::Result<()> {
+        use std::os::unix::fs::symlink;
+        symlink(src, link_name)
+    }
+
+    imp(src.as_ref(), link_name.as_ref()).map_err(|e| {
+        err!(
+            "failed to symlink directory {} with target {}: {}",
+            src.as_ref().display(),
+            link_name.as_ref().display(),
+            e
+        )
+    })
 }

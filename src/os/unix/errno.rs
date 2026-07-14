@@ -17,11 +17,9 @@ extern "C" {
     )]
     #[cfg_attr(
         any(
-            target_os = "bitrig",
             target_os = "netbsd",
             target_os = "openbsd",
             target_os = "android",
-            target_os = "hermit",
         ),
         link_name = "__errno"
     )]

@@ -28,19 +28,15 @@ impl Metadata {
     }
 
     pub fn dev(&self) -> u64 {
-        self.stat.st_dev
+        self.stat.st_dev as u64
     }
 
     pub fn ino(&self) -> u64 {
-        self.stat.st_ino
+        self.stat.st_ino as u64
     }
 
     pub fn mode(&self) -> u64 {
         self.stat.st_mode as u64
-    }
-
-    pub fn permissions(&self) -> ! {
-        unimplemented!()
     }
 }
 
@@ -118,7 +114,7 @@ impl Metadata {
 }
 
 /// One of seven possible file types on Unix.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub struct FileType(libc::mode_t);
 
 impl fmt::Debug for FileType {
@@ -166,11 +162,6 @@ impl FileType {
     /// Create a new file type from a stat's `st_mode` field.
     pub fn from_stat_mode(st_mode: u64) -> FileType {
         FileType(st_mode as libc::mode_t)
-    }
-
-    /// Convert this file type to the platform independent file type.
-    pub fn into_api(self) -> crate::FileType {
-        crate::FileType::from(self)
     }
 
     /// Returns true if this file type is a regular file.

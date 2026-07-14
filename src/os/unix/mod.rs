@@ -16,11 +16,10 @@ use libc;
 #[cfg(any(
     target_os = "dragonfly",
     target_os = "freebsd",
+    target_os = "fuchsia",
     target_os = "haiku",
-    target_os = "hermit",
     target_os = "macos",
     target_os = "netbsd",
-    target_os = "newlib",
     target_os = "openbsd",
     target_os = "solaris",
 ))]
@@ -28,7 +27,6 @@ use libc::readdir;
 #[cfg(any(
     target_os = "android",
     target_os = "emscripten",
-    target_os = "fuchsia",
     target_os = "linux",
 ))]
 use libc::readdir64 as readdir;
@@ -58,7 +56,7 @@ mod stat;
 #[derive(Clone)]
 pub struct DirEntry {
     /// A copy of the file name contents from the raw dirent, represented as a
-    /// NUL terminated C string. We use a Vec<u8> here instead of a `CString`
+    /// NUL terminated C string. We use a `Vec<u8>` here instead of a `CString`
     /// because it makes it easier to correctly amortize allocation, and keep
     /// track of the correct length of the string without needing to recompute
     /// it.
@@ -235,7 +233,7 @@ impl io::Seek for DirFd {
     fn seek(&mut self, pos: io::SeekFrom) -> io::Result<u64> {
         let mut file = unsafe { File::from_raw_fd(self.0) };
         let res = file.seek(pos);
-        file.into_raw_fd();
+        let _ = file.into_raw_fd();
         res
     }
 }
@@ -342,7 +340,9 @@ impl DirFd {
 #[derive(Debug)]
 pub struct Dir(NonNull<libc::DIR>);
 
+// The stream owns its DIR pointer, and reads require exclusive access.
 unsafe impl Send for Dir {}
+unsafe impl Sync for Dir {}
 
 impl Drop for Dir {
     fn drop(&mut self) {

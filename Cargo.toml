@@ -24,10 +24,10 @@ members = ["walkdir-list"]
 same-file = "1.0.1"
 
 [target.'cfg(unix)'.dependencies.libc]
-version = "0.2.54"
+version = ">=0.2.54, <0.2.164"
 
-[target.'cfg(target_os = "dragonfly")'.build-dependencies]
-cc = "1.0.36"
+[build-dependencies]
+cc = ">=1.0.36, <1.0.95"
 
 [target.'cfg(windows)'.dependencies.winapi]
 version = "0.3"

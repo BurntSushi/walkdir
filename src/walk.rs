@@ -741,10 +741,11 @@ impl IntoIter {
             while let Some(res) = list.next() {
                 match res {
                     Ok(()) => {
-                        ents.push(DirEntry::from_entry(
-                            self.depth + 1,
-                            list.entry(),
-                        ));
+                        if let Some(entry) =
+                            entry_from_list(self.depth + 1, &list)
+                        {
+                            ents.push(entry);
+                        }
                     }
                     Err(err) => ents.push(Err(dir_read_error(
                         open_failure,
@@ -809,10 +810,9 @@ impl IntoIter {
                     )))
                 }
                 Some(Ok(())) => {
-                    return Some(DirEntry::from_entry(
-                        self.depth,
-                        list.entry(),
-                    ));
+                    if let Some(entry) = entry_from_list(self.depth, list) {
+                        return Some(entry);
+                    }
                 }
             }
         }
@@ -863,6 +863,26 @@ impl IntoIter {
 }
 
 impl std::iter::FusedIterator for IntoIter {}
+
+#[cfg(walkdir_unix)]
+fn entry_from_list(
+    depth: usize,
+    list: &crate::dir::DirList,
+) -> Option<Result<DirEntry>> {
+    let entry = list.entry();
+    if entry.file_name_bytes() == b"." || entry.file_name_bytes() == b".." {
+        return None;
+    }
+    Some(DirEntry::from_os_entry(depth, list.path(), entry))
+}
+
+#[cfg(not(walkdir_unix))]
+fn entry_from_list(
+    depth: usize,
+    list: &crate::dir::DirList,
+) -> Option<Result<DirEntry>> {
+    Some(DirEntry::from_entry(depth, list.entry()))
+}
 
 /// Failed opens keep the directory's own path and depth, other errors use
 /// the entry depth.

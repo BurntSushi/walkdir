@@ -1,8 +1,6 @@
 use std::ffi::OsString;
-use std::fs;
 use std::io::{self, Seek};
 use std::os::unix::io::AsRawFd;
-use std::path::PathBuf;
 
 use crate::os::unix;
 use crate::tests::util::Dir;
@@ -153,7 +151,7 @@ fn openat() {
     dir.mkdirp("foo");
     dir.touch("foo/a");
 
-    let mut root = unix::DirFd::open(dir.path()).unwrap();
+    let root = unix::DirFd::open(dir.path()).unwrap();
     let mut foo = unix::DirFd::openat(root.as_raw_fd(), "foo").unwrap();
     let r = dir.run_linux(&mut foo);
     r.assert_no_errors();

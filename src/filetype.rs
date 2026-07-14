@@ -1,8 +1,11 @@
-use std::fs;
+#[cfg(walkdir_unix)]
+use crate::os::unix::FileType as OsFileType;
+#[cfg(not(walkdir_unix))]
+use std::fs::FileType as OsFileType;
 
 /// File type yielded by a [`crate::DirEntry`].
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct FileType(fs::FileType);
+pub struct FileType(OsFileType);
 
 impl FileType {
     /// Returns true if this entry is a regular file.
@@ -21,8 +24,8 @@ impl FileType {
     }
 }
 
-impl From<fs::FileType> for FileType {
-    fn from(file_type: fs::FileType) -> FileType {
+impl From<OsFileType> for FileType {
+    fn from(file_type: OsFileType) -> FileType {
         FileType(file_type)
     }
 }

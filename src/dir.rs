@@ -1,7 +1,16 @@
+#[cfg(not(walkdir_unix))]
 use std::fs;
 use std::io;
+#[cfg(walkdir_getdents)]
+use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 
+#[cfg(walkdir_getdents)]
+use crate::os::linux;
+#[cfg(walkdir_unix)]
+use crate::os::unix::{Dir, DirEntry as OsDirEntry};
+
+#[cfg(not(walkdir_unix))]
 #[derive(Debug)]
 pub struct DirList {
     depth: usize,
@@ -10,6 +19,7 @@ pub struct DirList {
     stream: Stream,
 }
 
+#[cfg(not(walkdir_unix))]
 #[derive(Debug)]
 enum Stream {
     Open(fs::ReadDir),
@@ -18,6 +28,7 @@ enum Stream {
     Failed(Option<io::Error>),
 }
 
+#[cfg(not(walkdir_unix))]
 impl DirList {
     pub fn open_path(depth: usize, path: PathBuf) -> DirList {
         let stream = match fs::read_dir(&path) {
@@ -90,5 +101,179 @@ impl DirList {
             }
             stream => stream,
         };
+    }
+}
+
+#[cfg(walkdir_unix)]
+#[derive(Debug)]
+pub struct DirList {
+    depth: usize,
+    path: PathBuf,
+    done: bool,
+    scratch: OsDirEntry,
+    stream: Stream,
+}
+
+#[cfg(walkdir_unix)]
+#[derive(Debug)]
+enum Stream {
+    Open {
+        dir: Dir,
+        #[cfg(walkdir_getdents)]
+        cursor: linux::DirEntryCursor,
+    },
+    Spilled(std::vec::IntoIter<io::Result<OsDirEntry>>),
+    Built(std::vec::IntoIter<crate::Result<crate::DirEntry>>),
+    Failed(Option<io::Error>),
+}
+
+#[cfg(walkdir_unix)]
+impl DirList {
+    pub fn open_path(depth: usize, path: PathBuf) -> DirList {
+        let stream = match Dir::open(path.clone()) {
+            Ok(dir) => Stream::Open {
+                dir,
+                #[cfg(walkdir_getdents)]
+                cursor: linux::DirEntryCursor::new(),
+            },
+            Err(err) => Stream::Failed(Some(err)),
+        };
+        DirList {
+            depth,
+            path,
+            done: false,
+            scratch: OsDirEntry::empty(),
+            stream,
+        }
+    }
+
+    pub fn depth(&self) -> usize {
+        self.depth
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn is_failed(&self) -> bool {
+        matches!(self.stream, Stream::Failed(_))
+    }
+
+    pub fn into_built(
+        self,
+        entries: Vec<crate::Result<crate::DirEntry>>,
+    ) -> DirList {
+        DirList {
+            depth: self.depth,
+            path: self.path,
+            done: false,
+            scratch: self.scratch,
+            stream: Stream::Built(entries.into_iter()),
+        }
+    }
+
+    pub fn next_built(&mut self) -> Option<crate::Result<crate::DirEntry>> {
+        match self.stream {
+            Stream::Built(ref mut iter) => iter.next(),
+            _ => None,
+        }
+    }
+
+    pub fn is_built(&self) -> bool {
+        matches!(self.stream, Stream::Built(_))
+    }
+
+    pub fn next(&mut self) -> Option<io::Result<()>> {
+        match self.stream {
+            Stream::Failed(ref mut err) => err.take().map(Err),
+            Stream::Spilled(ref mut iter) => match iter.next()? {
+                Ok(entry) => {
+                    self.scratch = entry;
+                    Some(Ok(()))
+                }
+                Err(err) => Some(Err(err)),
+            },
+            Stream::Built(_) => None,
+            Stream::Open { .. } => self.next_open(),
+        }
+    }
+
+    pub fn entry(&self) -> &OsDirEntry {
+        &self.scratch
+    }
+
+    #[cfg(walkdir_getdents)]
+    fn next_open(&mut self) -> Option<io::Result<()>> {
+        if self.done {
+            return None;
+        }
+        let result = match self.stream {
+            Stream::Open { ref mut dir, ref mut cursor } => loop {
+                if cursor.advance() {
+                    cursor.current().write_to_unix(&mut self.scratch);
+                    break Ok(true);
+                }
+                match linux::getdents(dir.as_raw_fd(), cursor) {
+                    Ok(false) => break Ok(false),
+                    Ok(true) => continue,
+                    Err(ref err)
+                        if err.kind() == io::ErrorKind::Interrupted =>
+                    {
+                        continue;
+                    }
+                    Err(err) => break Err(err),
+                }
+            },
+            _ => unreachable!(),
+        };
+        self.finish_read(result)
+    }
+
+    #[cfg(not(walkdir_getdents))]
+    fn next_open(&mut self) -> Option<io::Result<()>> {
+        if self.done {
+            return None;
+        }
+        let result = match self.stream {
+            Stream::Open { ref mut dir } => loop {
+                match dir.read_into(&mut self.scratch) {
+                    Err(ref err)
+                        if err.kind() == io::ErrorKind::Interrupted =>
+                    {
+                        continue;
+                    }
+                    result => break result,
+                }
+            },
+            _ => unreachable!(),
+        };
+        self.finish_read(result)
+    }
+
+    fn finish_read(
+        &mut self,
+        result: io::Result<bool>,
+    ) -> Option<io::Result<()>> {
+        match result {
+            Ok(true) => Some(Ok(())),
+            Ok(false) => {
+                self.done = true;
+                None
+            }
+            Err(err) => {
+                self.done = true;
+                Some(Err(err))
+            }
+        }
+    }
+
+    pub fn spill(&mut self) {
+        if let Stream::Open { .. } = self.stream {
+            let mut entries = Vec::new();
+            while let Some(result) = self.next_open() {
+                entries.push(result.map(|()| self.scratch.clone()));
+            }
+            self.stream = Stream::Spilled(entries.into_iter());
+        }
     }
 }

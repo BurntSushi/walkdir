@@ -202,7 +202,24 @@ impl DirEntry {
         })
     }
 
-    #[cfg(unix)]
+    #[cfg(walkdir_unix)]
+    pub(crate) fn from_os_entry(
+        depth: usize,
+        parent_path: &Path,
+        ent: &crate::os::unix::DirEntry,
+    ) -> Result<DirEntry> {
+        let path = parent_path.join(ent.file_name_os());
+        let ty = match ent.file_type() {
+            Some(file_type) => file_type.into(),
+            None => crate::os::unix::lstat(path.clone())
+                .map_err(|err| Error::from_path(depth, path.clone(), err))?
+                .file_type()
+                .into(),
+        };
+        Ok(DirEntry { path, ty, follow_link: false, depth, ino: ent.ino() })
+    }
+
+    #[cfg(all(unix, not(walkdir_unix)))]
     pub(crate) fn from_entry(
         depth: usize,
         ent: &fs::DirEntry,
@@ -259,7 +276,28 @@ impl DirEntry {
         })
     }
 
-    #[cfg(unix)]
+    #[cfg(walkdir_unix)]
+    pub(crate) fn from_path(
+        depth: usize,
+        pb: PathBuf,
+        follow: bool,
+    ) -> Result<DirEntry> {
+        let metadata = if follow {
+            crate::os::unix::stat(pb.clone())
+        } else {
+            crate::os::unix::lstat(pb.clone())
+        }
+        .map_err(|err| Error::from_path(depth, pb.clone(), err))?;
+        Ok(DirEntry {
+            path: pb,
+            ty: metadata.file_type().into(),
+            follow_link: follow,
+            depth,
+            ino: metadata.ino(),
+        })
+    }
+
+    #[cfg(all(unix, not(walkdir_unix)))]
     pub(crate) fn from_path(
         depth: usize,
         pb: PathBuf,

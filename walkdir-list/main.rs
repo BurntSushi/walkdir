@@ -152,7 +152,7 @@ where
         err!("cannot use --flat-windows on non-Windows platform")
     }
 
-    #[cfg(unix)]
+    #[cfg(walkdir_unix)]
     fn count_unix<W: io::Write>(
         args: &Args,
         mut stderr: W,
@@ -183,7 +183,7 @@ where
         Ok(res)
     }
 
-    #[cfg(not(unix))]
+    #[cfg(not(walkdir_unix))]
     fn count_unix<W: io::Write>(
         _args: &Args,
         _stderr: W,
@@ -368,7 +368,7 @@ where
         err!("cannot use --flat-windows on non-Windows platform")
     }
 
-    #[cfg(unix)]
+    #[cfg(walkdir_unix)]
     fn print_unix<W1, W2>(
         args: &Args,
         mut stdout: W1,
@@ -400,7 +400,7 @@ where
         Ok(())
     }
 
-    #[cfg(not(unix))]
+    #[cfg(not(walkdir_unix))]
     fn print_unix<W1, W2>(
         _args: &Args,
         _stdout: W1,
@@ -584,7 +584,7 @@ impl Args {
                          directory. This is NOT recursive.",
                     ),
             );
-        if cfg!(unix) {
+        if cfg!(walkdir_unix) {
             app = app.arg(
                 Arg::with_name("flat-unix")
                     .long("flat-unix")

@@ -1,10 +1,24 @@
 use std::ffi::OsString;
-use std::fs;
 use std::os::unix::io::AsRawFd;
-use std::path::PathBuf;
 
 use crate::os::unix;
 use crate::tests::util::Dir;
+
+/// Assert the type only when the platform reports `d_type`.
+fn assert_file_type(ft: Option<unix::FileType>, kind: &str) {
+    let ft = match ft {
+        Some(ft) => ft,
+        None => return,
+    };
+    match kind {
+        "dir" => assert!(ft.is_dir(), "expected dir, got {:?}", ft),
+        "file" => assert!(ft.is_file(), "expected file, got {:?}", ft),
+        "symlink" => {
+            assert!(ft.is_symlink(), "expected symlink, got {:?}", ft)
+        }
+        _ => unreachable!("unknown kind: {}", kind),
+    }
+}
 
 #[test]
 fn empty() {
@@ -18,8 +32,8 @@ fn empty() {
     assert_eq!(2, ents.len());
     assert_eq!(".", ents[0].file_name_os());
     assert_eq!("..", ents[1].file_name_os());
-    assert!(ents[0].file_type().unwrap().is_dir());
-    assert!(ents[1].file_type().unwrap().is_dir());
+    assert_file_type(ents[0].file_type(), "dir");
+    assert_file_type(ents[1].file_type(), "dir");
 }
 
 #[test]
@@ -35,7 +49,7 @@ fn one_dir() {
     assert_eq!(3, ents.len());
     assert_eq!("a", ents[2].file_name_os());
     assert_ne!(0, ents[2].ino());
-    assert!(ents[2].file_type().unwrap().is_dir());
+    assert_file_type(ents[2].file_type(), "dir");
 }
 
 #[test]
@@ -51,7 +65,7 @@ fn one_file() {
     assert_eq!(3, ents.len());
     assert_eq!("a", ents[2].file_name_os());
     assert_ne!(0, ents[2].ino());
-    assert!(ents[2].file_type().unwrap().is_file());
+    assert_file_type(ents[2].file_type(), "file");
 }
 
 #[test]
@@ -117,10 +131,10 @@ fn many_mixed() {
     assert_eq!(expected, r.sorted_file_names());
 
     let ents = r.sorted_ents();
-    assert!(ents[2].file_type().unwrap().is_file());
-    assert!(ents[3].file_type().unwrap().is_dir());
-    assert!(ents[4].file_type().unwrap().is_file());
-    assert!(ents[5].file_type().unwrap().is_dir());
+    assert_file_type(ents[2].file_type(), "file");
+    assert_file_type(ents[3].file_type(), "dir");
+    assert_file_type(ents[4].file_type(), "file");
+    assert_file_type(ents[5].file_type(), "dir");
 }
 
 #[test]
@@ -142,8 +156,8 @@ fn symlink() {
     assert_eq!(expected, r.sorted_file_names());
 
     let ents = r.sorted_ents();
-    assert!(ents[2].file_type().unwrap().is_file());
-    assert!(ents[3].file_type().unwrap().is_symlink());
+    assert_file_type(ents[2].file_type(), "file");
+    assert_file_type(ents[3].file_type(), "symlink");
 }
 
 #[test]
@@ -152,7 +166,7 @@ fn openat() {
     dir.mkdirp("foo");
     dir.touch("foo/a");
 
-    let mut root = unix::Dir::open(dir.path()).unwrap();
+    let root = unix::Dir::open(dir.path()).unwrap();
     let mut foo = unix::Dir::openat(root.as_raw_fd(), "foo").unwrap();
     let r = dir.run_unix(&mut foo);
     r.assert_no_errors();

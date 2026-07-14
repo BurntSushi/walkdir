@@ -213,19 +213,6 @@ impl RawPathBuf {
         debug_assert_eq!(*self.buf.last().unwrap(), 0);
         self.buf.set_len(self.buf.len() - 1);
     }
-
-    /// Add a trailing NUL byte to the internal buffer.
-    ///
-    /// # Safety
-    ///
-    /// This is unsafe to call because it could create an interior NUL byte
-    /// if the internal buffer already ends with a NUL byte. Therefore, this
-    /// must only be called when the caller knows that the buffer does not end
-    /// with a NUL byte.
-    unsafe fn add_nul(&mut self) {
-        debug_assert_ne!(*self.buf.last().unwrap(), 0);
-        self.buf.push(0);
-    }
 }
 
 #[cfg(test)]

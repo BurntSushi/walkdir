@@ -3,21 +3,18 @@ Low level Linux specific APIs for reading directory entries via `getdents64`.
 */
 
 use std::alloc::{alloc_zeroed, dealloc, handle_alloc_error, Layout};
-use std::ffi::{CStr, CString, OsStr};
+use std::ffi::{CStr, OsStr};
 use std::fmt;
 use std::io;
 use std::mem;
-use std::os::unix::ffi::{OsStrExt, OsStringExt};
-use std::os::unix::io::{AsRawFd, RawFd};
-use std::path::PathBuf;
+use std::os::unix::ffi::OsStrExt;
+use std::os::unix::io::RawFd;
 use std::ptr::NonNull;
 
 use libc::{syscall, SYS_getdents64};
 
 use crate::os::linux::dirent::RawDirEntry;
-use crate::os::unix::{
-    errno, escaped_bytes, DirEntry as UnixDirEntry, DirFd, FileType,
-};
+use crate::os::unix::{DirEntry as UnixDirEntry, FileType};
 
 mod dirent;
 
@@ -184,6 +181,11 @@ pub struct DirEntryCursor {
     /// Whether the cursor has been advanced at least once.
     advanced: bool,
 }
+
+// The cursor owns its buffer, and all operations that move its interior
+// pointer require exclusive access.
+unsafe impl Send for DirEntryCursor {}
+unsafe impl Sync for DirEntryCursor {}
 
 impl Drop for DirEntryCursor {
     fn drop(&mut self) {

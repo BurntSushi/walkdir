@@ -26,17 +26,31 @@
 use std::ffi::CStr;
 use std::fmt;
 use std::ptr::NonNull;
+#[cfg(any(
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "macos",
+    target_os = "netbsd",
+    target_os = "openbsd",
+))]
 use std::slice;
 
+#[cfg(any(
+    target_os = "android",
+    target_os = "emscripten",
+    target_os = "fuchsia",
+    target_os = "haiku",
+    target_os = "linux",
+    target_os = "solaris",
+))]
 use libc::c_char;
 #[cfg(any(
     target_os = "dragonfly",
     target_os = "freebsd",
+    target_os = "fuchsia",
     target_os = "haiku",
-    target_os = "hermit",
     target_os = "macos",
     target_os = "netbsd",
-    target_os = "newlib",
     target_os = "openbsd",
     target_os = "solaris",
 ))]
@@ -44,7 +58,6 @@ use libc::dirent;
 #[cfg(any(
     target_os = "android",
     target_os = "emscripten",
-    target_os = "fuchsia",
     target_os = "linux",
 ))]
 use libc::dirent64 as dirent;
@@ -116,7 +129,6 @@ impl RawDirEntry {
             target_os = "emscripten",
             target_os = "fuchsia",
             target_os = "haiku",
-            target_os = "hermit",
             target_os = "linux",
             target_os = "solaris",
         ))]
@@ -157,12 +169,8 @@ impl RawDirEntry {
         }
 
         // No `d_type` field is available here, so always return None.
-        #[cfg(any(
-            target_os = "haiku",
-            target_os = "hermit",
-            target_os = "solaris",
-        ))]
-        fn imp(ent: &RawDirEntry) -> Option<FileType> {
+        #[cfg(any(target_os = "haiku", target_os = "solaris",))]
+        fn imp(_ent: &RawDirEntry) -> Option<FileType> {
             None
         }
 
@@ -189,10 +197,8 @@ impl RawDirEntry {
             target_os = "fuchsia",
             target_os = "macos",
             target_os = "haiku",
-            target_os = "hermit",
             target_os = "linux",
             target_os = "solaris",
-            target_os = "dragonfly",
         ))]
         fn imp(ent: &RawDirEntry) -> u64 {
             ent.dirent().d_ino as u64
