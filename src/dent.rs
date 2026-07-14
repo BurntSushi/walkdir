@@ -1,10 +1,10 @@
 use std::ffi::OsStr;
 use std::fmt;
-use std::fs::{self, FileType};
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::error::Error;
-use crate::Result;
+use crate::{FileType, Result};
 
 /// A directory entry.
 ///
@@ -155,7 +155,7 @@ impl DirEntry {
     /// This never makes any system calls.
     ///
     /// [`follow_links`]: struct.WalkDir.html#method.follow_links
-    pub fn file_type(&self) -> fs::FileType {
+    pub fn file_type(&self) -> FileType {
         self.ty
     }
 
@@ -193,7 +193,13 @@ impl DirEntry {
         let md = ent
             .metadata()
             .map_err(|err| Error::from_path(depth, path.clone(), err))?;
-        Ok(DirEntry { path, ty, follow_link: false, depth, metadata: md })
+        Ok(DirEntry {
+            path,
+            ty: ty.into(),
+            follow_link: false,
+            depth,
+            metadata: md,
+        })
     }
 
     #[cfg(unix)]
@@ -208,7 +214,7 @@ impl DirEntry {
             .map_err(|err| Error::from_path(depth, ent.path(), err))?;
         Ok(DirEntry {
             path: ent.path(),
-            ty,
+            ty: ty.into(),
             follow_link: false,
             depth,
             ino: ent.ino(),
@@ -223,7 +229,12 @@ impl DirEntry {
         let ty = ent
             .file_type()
             .map_err(|err| Error::from_path(depth, ent.path(), err))?;
-        Ok(DirEntry { path: ent.path(), ty, follow_link: false, depth })
+        Ok(DirEntry {
+            path: ent.path(),
+            ty: ty.into(),
+            follow_link: false,
+            depth,
+        })
     }
 
     #[cfg(windows)]
@@ -241,7 +252,7 @@ impl DirEntry {
         };
         Ok(DirEntry {
             path: pb,
-            ty: md.file_type(),
+            ty: md.file_type().into(),
             follow_link: follow,
             depth,
             metadata: md,
@@ -265,7 +276,7 @@ impl DirEntry {
         };
         Ok(DirEntry {
             path: pb,
-            ty: md.file_type(),
+            ty: md.file_type().into(),
             follow_link: follow,
             depth,
             ino: md.ino(),
@@ -287,7 +298,7 @@ impl DirEntry {
         };
         Ok(DirEntry {
             path: pb,
-            ty: md.file_type(),
+            ty: md.file_type().into(),
             follow_link: follow,
             depth,
         })

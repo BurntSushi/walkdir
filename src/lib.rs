@@ -111,11 +111,13 @@ pub use crate::dent::DirEntry;
 #[cfg(unix)]
 pub use crate::dent::DirEntryExt;
 pub use crate::error::{Error, Result};
+pub use crate::filetype::FileType;
 pub use crate::walk::{FilterEntry, IntoIter, WalkDir};
 
 mod dent;
 pub(crate) mod dir;
 mod error;
+mod filetype;
 pub mod os;
 #[cfg(test)]
 mod tests;
