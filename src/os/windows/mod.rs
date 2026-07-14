@@ -1,6 +1,6 @@
 /*!
 Low level Windows specific APIs for reading directory entries via
-`GetFileInformationByHandleEx`.
+`NtOpenFile` relative opens and `GetFileInformationByHandleEx`.
 */
 
 use std::char;
@@ -11,13 +11,21 @@ use std::io;
 use std::mem;
 use std::os::windows::ffi::OsStringExt;
 use std::os::windows::fs::OpenOptionsExt;
-use std::os::windows::io::{AsRawHandle, OwnedHandle, RawHandle};
+use std::os::windows::io::{
+    AsRawHandle, FromRawHandle, OwnedHandle, RawHandle,
+};
 use std::path::Path;
 use std::ptr;
 use std::time::{self, SystemTime};
 
+use windows_sys::Wdk::Foundation::OBJECT_ATTRIBUTES;
+use windows_sys::Wdk::Storage::FileSystem::{
+    NtOpenFile, FILE_DIRECTORY_FILE, FILE_OPEN_REPARSE_POINT,
+    FILE_SYNCHRONOUS_IO_NONALERT,
+};
 use windows_sys::Win32::Foundation::{
-    ERROR_DIRECTORY, ERROR_NO_MORE_FILES, HANDLE,
+    RtlNtStatusToDosError, ERROR_DIRECTORY, ERROR_NO_MORE_FILES, HANDLE,
+    NTSTATUS, STATUS_DELETE_PENDING, STATUS_PENDING, UNICODE_STRING,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     FileIdBothDirectoryInfo, FileIdBothDirectoryRestartInfo,
@@ -25,12 +33,18 @@ use windows_sys::Win32::Storage::FileSystem::{
     BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_DIRECTORY,
     FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_REPARSE_POINT,
     FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
-    FILE_ID_BOTH_DIR_INFO, FILE_LIST_DIRECTORY,
+    FILE_ID_BOTH_DIR_INFO, FILE_LIST_DIRECTORY, FILE_SHARE_DELETE,
+    FILE_SHARE_READ, FILE_SHARE_WRITE, SYNCHRONIZE,
 };
+use windows_sys::Win32::System::IO::{IO_STATUS_BLOCK, IO_STATUS_BLOCK_0};
 
 pub use crate::os::windows::stat::{lstat, stat, FileType, Metadata};
 
 mod stat;
+
+/// The Win32 error code mapped from [`STATUS_DELETE_PENDING`], so a pending
+/// delete is not misreported as an access-denied error.
+const ERROR_DELETE_PENDING: u32 = 303;
 
 /// A heap buffer aligned to 8 bytes, as [`FILE_ID_BOTH_DIR_INFO`] requires.
 #[repr(C, align(8))]
@@ -290,6 +304,99 @@ impl Dir {
         Ok(Dir::from_handle(OwnedHandle::from(file)))
     }
 
+    /// Open a directory handle for the given directory name, where the given
+    /// handle (`parent`) corresponds to the parent directory of the given name.
+    ///
+    /// Since Win32 has no `openat`, the child is opened relative to the parent
+    /// handle with `NtOpenFile`. When `follow` is false it is opened with
+    /// [`FILE_OPEN_REPARSE_POINT`], which is the Windows equivalent of `O_NOFOLLOW`,
+    /// so that if the name was swapped for a reparse point it is opened as the
+    /// link itself rather than being followed.
+    ///
+    /// `name` must be NUL terminated, and the trailing NUL is load-bearing,
+    /// since per rustc#143078 some Windows builds read one `u16` past the name
+    /// and the buffer is not backed by the padded enumeration buffer. An error
+    /// is returned if the directory could not be opened, or if `name` contains
+    /// an interior `NUL` code unit.
+    pub fn openat_follow(
+        parent: RawHandle,
+        name: &[u16],
+        follow: bool,
+    ) -> io::Result<Dir> {
+        if name.last() != Some(&0) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "relative names must be NUL terminated",
+            ));
+        }
+        if name[..name.len() - 1].contains(&0) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "file names on Windows cannot contain NUL code units",
+            ));
+        }
+        let (Some(length), Some(maximum_length)) =
+            ((name.len() - 1).checked_mul(2), name.len().checked_mul(2))
+        else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "relative name is too long",
+            ));
+        };
+        if length > u16::MAX as usize || maximum_length > u16::MAX as usize {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "relative name is too long",
+            ));
+        }
+
+        let name = UNICODE_STRING {
+            Length: length as u16,
+            MaximumLength: maximum_length as u16,
+            Buffer: name.as_ptr().cast_mut(),
+        };
+        let object = OBJECT_ATTRIBUTES {
+            Length: mem::size_of::<OBJECT_ATTRIBUTES>() as u32,
+            RootDirectory: parent as HANDLE,
+            ObjectName: &name,
+            Attributes: 0,
+            SecurityDescriptor: ptr::null(),
+            SecurityQualityOfService: ptr::null(),
+        };
+        let access = SYNCHRONIZE | FILE_LIST_DIRECTORY;
+        let share = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+        let mut options = FILE_SYNCHRONOUS_IO_NONALERT | FILE_DIRECTORY_FILE;
+        if !follow {
+            options |= FILE_OPEN_REPARSE_POINT;
+        }
+
+        let mut handle: HANDLE = ptr::null_mut();
+        let mut io_status = IO_STATUS_BLOCK {
+            Anonymous: IO_STATUS_BLOCK_0 { Status: STATUS_PENDING },
+            Information: 0,
+        };
+        // SAFETY: object and io_status are valid pointers that live across the
+        // call, and object borrows name, whose buffer is the caller's NUL
+        // terminated slice and so stays valid for the duration of the call.
+        let status = unsafe {
+            NtOpenFile(
+                &mut handle,
+                access,
+                &object,
+                &mut io_status,
+                share,
+                options,
+            )
+        };
+        if nt_success(status) {
+            // SAFETY: NtOpenFile succeeded, so handle owns a fresh handle.
+            let owned = unsafe { OwnedHandle::from_raw_handle(handle as _) };
+            Ok(Dir::from_handle(owned))
+        } else {
+            Err(io::Error::from_raw_os_error(nt_error(status) as i32))
+        }
+    }
+
     /// Read the next directory entry from this handle.
     ///
     /// This returns `None` when no more directory entries could be read.
@@ -450,6 +557,19 @@ fn malformed_record() -> io::Error {
     )
 }
 
+fn nt_success(status: NTSTATUS) -> bool {
+    status >= 0
+}
+
+fn nt_error(status: NTSTATUS) -> u32 {
+    if status == STATUS_DELETE_PENDING {
+        ERROR_DELETE_PENDING
+    } else {
+        // SAFETY: RtlNtStatusToDosError has no preconditions.
+        unsafe { RtlNtStatusToDosError(status) }
+    }
+}
+
 /// Decode UTF-16 code units into `dst`, reusing its allocation where possible.
 ///
 /// `dst` must be empty on entry. On invalid UTF-16 it falls back to a fresh
@@ -504,6 +624,20 @@ pub(crate) fn escaped_u16s(slice: &[u16]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn openat_rejects_invalid_names() {
+        let parent = std::ptr::null_mut();
+        for name in [&[][..], &[0x61][..], &[0x61, 0, 0x62, 0][..]] {
+            let err = Dir::openat_follow(parent, name, false).unwrap_err();
+            assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+        }
+
+        let mut name = vec![0x61; (u16::MAX as usize / 2) + 1];
+        name.push(0);
+        let err = Dir::openat_follow(parent, &name, false).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+    }
 
     #[test]
     fn escaping1() {

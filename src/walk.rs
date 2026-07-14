@@ -755,11 +755,21 @@ impl IntoIter {
         let mut list = {
             let follow = self.opts.follow_links
                 || (dent.depth() == 0 && self.opts.follow_root_links);
-            crate::dir::DirList::open_path(
-                self.depth,
-                dent.path().to_path_buf(),
-                follow,
-            )
+            match self.stack_list.last().and_then(|list| list.parent_handle())
+            {
+                Some(parent) => crate::dir::DirList::openat(
+                    self.depth,
+                    parent,
+                    &wide_of_file_name(dent.path()),
+                    follow,
+                    dent.path().to_path_buf(),
+                ),
+                None => crate::dir::DirList::open_path(
+                    self.depth,
+                    dent.path().to_path_buf(),
+                    follow,
+                ),
+            }
         };
         #[cfg(not(any(walkdir_unix, windows)))]
         let mut list = crate::dir::DirList::open_path(
@@ -984,6 +994,14 @@ fn cstr_of_file_name(path: &Path) -> CString {
 
     let name = path.file_name().unwrap_or(path.as_os_str());
     CString::new(name.as_bytes()).expect("name has no interior NUL")
+}
+
+#[cfg(windows)]
+fn wide_of_file_name(path: &Path) -> Vec<u16> {
+    use std::os::windows::ffi::OsStrExt;
+
+    let name = path.file_name().unwrap_or(path.as_os_str());
+    name.encode_wide().chain(std::iter::once(0)).collect()
 }
 
 /// A recursive directory iterator that skips entries.

@@ -5,6 +5,8 @@ use std::fs;
 use std::io;
 #[cfg(walkdir_unix)]
 use std::os::unix::io::{AsRawFd, RawFd};
+#[cfg(windows)]
+use std::os::windows::io::{AsRawHandle, RawHandle};
 use std::path::{Path, PathBuf};
 
 #[cfg(walkdir_getdents)]
@@ -337,8 +339,12 @@ enum Stream {
 
 #[cfg(windows)]
 impl DirList {
-    pub fn open_path(depth: usize, path: PathBuf, follow: bool) -> DirList {
-        let stream = match WindowsDir::open_path_follow(&path, follow) {
+    fn from_open(
+        depth: usize,
+        path: PathBuf,
+        result: io::Result<WindowsDir>,
+    ) -> DirList {
+        let stream = match result {
             Ok(dir) => Stream::Open(dir),
             Err(err) => Stream::Failed(Some(err)),
         };
@@ -351,12 +357,38 @@ impl DirList {
         }
     }
 
+    pub fn open_path(depth: usize, path: PathBuf, follow: bool) -> DirList {
+        let result = WindowsDir::open_path_follow(&path, follow);
+        DirList::from_open(depth, path, result)
+    }
+
+    pub fn openat(
+        depth: usize,
+        parent: RawHandle,
+        name: &[u16],
+        follow: bool,
+        path: PathBuf,
+    ) -> DirList {
+        DirList::from_open(
+            depth,
+            path,
+            WindowsDir::openat_follow(parent, name, follow),
+        )
+    }
+
     pub fn depth(&self) -> usize {
         self.depth
     }
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    pub fn parent_handle(&self) -> Option<RawHandle> {
+        match self.stream {
+            Stream::Open(ref dir) => Some(dir.as_raw_handle()),
+            _ => None,
+        }
     }
 
     pub fn is_failed(&self) -> bool {
