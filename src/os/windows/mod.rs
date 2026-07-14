@@ -1,109 +1,119 @@
 /*!
 Low level Windows specific APIs for reading directory entries via
-`FindNextFile`.
+`GetFileInformationByHandleEx`.
 */
 
 use std::char;
 use std::ffi::{OsStr, OsString};
 use std::fmt;
+use std::fs::OpenOptions;
 use std::io;
 use std::mem;
-use std::os::windows::ffi::{OsStrExt, OsStringExt};
+use std::os::windows::ffi::OsStringExt;
+use std::os::windows::fs::OpenOptionsExt;
+use std::os::windows::io::{AsRawHandle, OwnedHandle, RawHandle};
 use std::path::Path;
+use std::ptr;
 use std::time::{self, SystemTime};
 
-use winapi::shared::minwindef::{DWORD, FILETIME};
-use winapi::shared::winerror::ERROR_NO_MORE_FILES;
-use winapi::um::errhandlingapi::GetLastError;
-use winapi::um::fileapi::{FindClose, FindFirstFileW, FindNextFileW};
-use winapi::um::handleapi::INVALID_HANDLE_VALUE;
-use winapi::um::minwinbase::WIN32_FIND_DATAW;
-use winapi::um::winnt::HANDLE;
+use windows_sys::Win32::Foundation::{
+    ERROR_DIRECTORY, ERROR_NO_MORE_FILES, HANDLE,
+};
+use windows_sys::Win32::Storage::FileSystem::{
+    FileIdBothDirectoryInfo, FileIdBothDirectoryRestartInfo,
+    GetFileInformationByHandle, GetFileInformationByHandleEx,
+    BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_DIRECTORY,
+    FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_REPARSE_POINT,
+    FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+    FILE_ID_BOTH_DIR_INFO, FILE_LIST_DIRECTORY,
+};
 
-pub use crate::os::windows::stat::FileType;
+pub use crate::os::windows::stat::{lstat, stat, FileType, Metadata};
 
-mod rawpath;
 mod stat;
+
+/// A heap buffer aligned to 8 bytes, as [`FILE_ID_BOTH_DIR_INFO`] requires.
+#[repr(C, align(8))]
+struct Align8<T>(T);
+
+/// The enumeration buffer size. Larger than std's 1024 to cut syscalls.
+const BUF_LEN: usize = 4096;
 
 /// A low-level Windows specific directory entry.
 ///
-/// This type corresponds as closely as possible to the `WIN32_FIND_DATA`
-/// structure found on Windows platforms. It exposes the underlying file name,
-/// raw file attributions, time information and file size. Notably, this is
-/// quite a bit more information than Unix APIs, which typically only expose
-/// the file name, file serial number, and in most cases, the file type.
+/// This type corresponds as closely as possible to the [`FILE_ID_BOTH_DIR_INFO`]
+/// structure reported by directory enumeration on Windows platforms. It
+/// exposes the underlying file name, raw file attributes, time information and
+/// file size. Notably, this is quite a bit more information than Unix APIs,
+/// which typically only expose the file name, file serial number, and in most
+/// cases, the file type.
 ///
 /// All methods on this directory entry have zero cost. That is, no allocations
 /// or syscalls are performed.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct DirEntry {
-    attr: DWORD,
+    /// The file name converted to an OsString (using WTF-8 internally).
+    file_name: OsString,
+    /// The raw 16-bit code units that make up a file name in Windows. This
+    /// does not include a NUL terminator.
+    file_name_u16: Vec<u16>,
+    attr: u32,
+    reparse_tag: u32,
     creation_time: u64,
     last_access_time: u64,
     last_write_time: u64,
     file_size: u64,
     file_type: FileType,
-    /// The file name converted to an OsString (using WTF-8 internally).
-    file_name: OsString,
-    /// The raw 16-bit code units that make up a file name in Windows. This
-    /// does not include the NUL terminator.
-    file_name_u16: Vec<u16>,
+}
+
+impl fmt::Debug for DirEntry {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("DirEntry")
+            .field("file_name", &escaped_u16s(&self.file_name_u16))
+            .field("attr", &self.attr)
+            .field("reparse_tag", &self.reparse_tag)
+            .field("file_type", &self.file_type)
+            .finish()
+    }
 }
 
 impl DirEntry {
-    #[inline]
-    fn from_find_data(&mut self, fd: &FindData) {
-        self.attr = fd.0.dwFileAttributes;
-        self.creation_time = fd.creation_time();
-        self.last_access_time = fd.last_access_time();
-        self.last_write_time = fd.last_write_time();
-        self.file_size = fd.file_size();
-        self.file_type = FileType::from_attr(self.attr, fd.0.dwReserved0);
-
-        self.file_name.clear();
-        self.file_name_u16.clear();
-        fd.decode_file_names_into(
-            &mut self.file_name,
-            &mut self.file_name_u16,
-        );
-    }
-
     /// Create a new empty directory entry.
     ///
     /// For an empty directory entry, the file name is empty, the file
     /// type returns `true` for `is_file` and `false` for all other public
-    /// predicates, and the rest of the public API methods on a `DirEntry`
+    /// predicates, and the rest of the public API methods on a [`DirEntry`]
     /// return `0`.
     ///
-    /// This is useful for creating for using `FindHandle::read_into`.
+    /// This is useful for creating space for using [`Dir::read_into`].
     #[inline]
     pub fn empty() -> DirEntry {
         DirEntry {
+            file_name: OsString::new(),
+            file_name_u16: vec![],
             attr: 0,
+            reparse_tag: 0,
             creation_time: 0,
             last_access_time: 0,
             last_write_time: 0,
             file_size: 0,
             file_type: FileType::from_attr(0, 0),
-            file_name: OsString::new(),
-            file_name_u16: vec![],
         }
     }
 
     /// Return the raw file attributes reported in this directory entry.
     ///
-    /// The value returned directly corresponds to the `dwFileAttributes`
-    /// member of the `WIN32_FIND_DATA` structure.
+    /// The value returned directly corresponds to the `FileAttributes` member
+    /// of the [`FILE_ID_BOTH_DIR_INFO`] structure.
     #[inline]
     pub fn file_attributes(&self) -> u32 {
         self.attr
     }
 
     /// Returns true if this file is marked as hidden via the
-    /// `FILE_ATTRIBUTE_HIDDEN` marker.
+    /// [`FILE_ATTRIBUTE_HIDDEN`] marker.
     #[inline]
     pub fn is_hidden(&self) -> bool {
-        use winapi::um::winnt::FILE_ATTRIBUTE_HIDDEN;
         self.file_attributes() & FILE_ATTRIBUTE_HIDDEN != 0
     }
 
@@ -175,6 +185,12 @@ impl DirEntry {
         &self.file_name
     }
 
+    /// Returns true if this entry is the `.` or `..` pseudo-entry.
+    #[inline]
+    pub fn is_dots(&self) -> bool {
+        matches!(self.file_name_u16.as_slice(), [0x2E] | [0x2E, 0x2E])
+    }
+
     /// Return the file name in this directory entry in its original form as
     /// a sequence of 16-bit code units.
     ///
@@ -200,76 +216,83 @@ impl DirEntry {
     }
 }
 
-/// A handle to a directory stream.
+/// A handle to a directory opened for enumeration.
 ///
 /// The handle is automatically closed when it's dropped.
-#[derive(Debug)]
-pub struct FindHandle {
-    handle: HANDLE,
-    first: Option<FindData>,
+pub struct Dir {
+    handle: OwnedHandle,
+    buf: Box<Align8<[u8; BUF_LEN]>>,
+    /// The byte offset of the next record in `buf`, or [`None`] when the buffer is
+    /// exhausted and a fresh enumeration call is needed.
+    cursor: Option<usize>,
+    /// True until the first enumeration call, which must use the restart class.
+    restart: bool,
 }
 
-unsafe impl Send for FindHandle {}
-
-impl Drop for FindHandle {
-    fn drop(&mut self) {
-        unsafe {
-            // Explicitly ignore the error here if one occurs. To get an error
-            // when closing, use FindHandle::close.
-            FindClose(self.handle);
-        }
+impl fmt::Debug for Dir {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Dir").field("handle", &self.handle).finish()
     }
 }
 
-impl FindHandle {
-    /// Open a handle for listing files in the given directory.
-    ///
-    /// If there was a problem opening the handle, then an error is returned.
-    pub fn open<P: AsRef<Path>>(dir_path: P) -> io::Result<FindHandle> {
-        let dir_path = dir_path.as_ref();
-        let mut buffer = Vec::with_capacity(dir_path.as_os_str().len() / 2);
-        FindHandle::open_buffer(dir_path, &mut buffer)
+impl AsRawHandle for Dir {
+    fn as_raw_handle(&self) -> RawHandle {
+        self.handle.as_raw_handle()
+    }
+}
+
+impl Dir {
+    fn from_handle(handle: OwnedHandle) -> Dir {
+        Dir {
+            handle,
+            buf: Box::new(Align8([0u8; BUF_LEN])),
+            cursor: None,
+            restart: true,
+        }
     }
 
-    /// Open a handle for listing files in the given directory.
+    /// Open a directory for enumeration, following a trailing symlink.
+    pub fn open<P: AsRef<Path>>(dir_path: P) -> io::Result<Dir> {
+        Dir::open_path_follow(dir_path.as_ref(), true)
+    }
+
+    /// Open `path` for enumeration with the requested follow mode.
     ///
-    /// This is like `open`, except it permits the caller to provide a buffer
-    /// that's used for converting the given directory path to UTF-16, as
-    /// required by the underlying Windows API.
-    pub fn open_buffer<P: AsRef<Path>>(
-        dir_path: P,
-        buffer: &mut Vec<u16>,
-    ) -> io::Result<FindHandle> {
-        let dir_path = dir_path.as_ref();
-
-        // Convert the given path to UTF-16, and then add a wild-card to the
-        // end of it. Yes, this is how we list files in a directory on Windows.
-        // Canonical example:
-        // https://docs.microsoft.com/en-us/windows/desktop/FileIO/listing-the-files-in-a-directory
-        buffer.clear();
-        to_utf16(dir_path, buffer)?;
-        if !buffer.ends_with(&['\\' as u16]) {
-            buffer.push('\\' as u16);
+    /// This goes through [`OpenOptions`], which prepends the `\\?\` long path
+    /// prefix as needed, so it is robust to paths longer than `MAX_PATH`.
+    pub fn open_path_follow(path: &Path, follow: bool) -> io::Result<Dir> {
+        let mut flags = FILE_FLAG_BACKUP_SEMANTICS;
+        if !follow {
+            flags |= FILE_FLAG_OPEN_REPARSE_POINT;
         }
-        buffer.push('*' as u16);
-        buffer.push(0);
+        let file = OpenOptions::new()
+            .access_mode(FILE_LIST_DIRECTORY)
+            .custom_flags(flags)
+            .open(path)?;
 
-        let mut first: WIN32_FIND_DATAW = unsafe { mem::zeroed() };
-        let handle = unsafe { FindFirstFileW(buffer.as_ptr(), &mut first) };
-        if handle == INVALID_HANDLE_VALUE {
-            Err(io::Error::last_os_error())
-        } else {
-            Ok(FindHandle { handle, first: Some(FindData(first)) })
+        // Opening with FILE_LIST_DIRECTORY succeeds even on a plain file, so
+        // the type has to be verified before enumerating.
+        // SAFETY: file is a valid open handle and info is filled on success.
+        let attr = unsafe {
+            let mut info = mem::zeroed::<BY_HANDLE_FILE_INFORMATION>();
+            let res = GetFileInformationByHandle(
+                file.as_raw_handle() as HANDLE,
+                &mut info,
+            );
+            if res == 0 {
+                return Err(io::Error::last_os_error());
+            }
+            info.dwFileAttributes
+        };
+        if attr & FILE_ATTRIBUTE_DIRECTORY == 0 {
+            return Err(io::Error::from_raw_os_error(ERROR_DIRECTORY as i32));
         }
+        Ok(Dir::from_handle(OwnedHandle::from(file)))
     }
 
     /// Read the next directory entry from this handle.
     ///
     /// This returns `None` when no more directory entries could be read.
-    ///
-    /// If there was a problem reading the next directory entry, then an error
-    /// is returned. When an error occurs, callers can still continue to read
-    /// subsequent directory entries.
     ///
     /// Note that no filtering of entries (such as `.` and `..`) is performed.
     pub fn read(&mut self) -> Option<io::Result<DirEntry>> {
@@ -294,130 +317,164 @@ impl FindHandle {
     ///
     /// Note that no filtering of entries (such as `.` and `..`) is performed.
     pub fn read_into(&mut self, ent: &mut DirEntry) -> io::Result<bool> {
-        if let Some(first) = self.first.take() {
-            ent.from_find_data(&first);
-            return Ok(true);
+        let off = match self.cursor {
+            Some(off) => off,
+            None => {
+                if !self.fill()? {
+                    return Ok(false);
+                }
+                0
+            }
+        };
+
+        // Drivers are not trusted here. Real filesystems return misaligned
+        // records (rust#104530) and a buggy or hostile one could return
+        // offsets past the buffer, so every field is read with read_unaligned,
+        // no reference is ever formed into the buffer and all offsets are
+        // bounds checked before any pointer arithmetic.
+        match off.checked_add(mem::size_of::<FILE_ID_BOTH_DIR_INFO>()) {
+            Some(end) if end <= BUF_LEN => {}
+            _ => {
+                self.cursor = None;
+                return Err(malformed_record());
+            }
         }
-        let mut data: WIN32_FIND_DATAW = unsafe { mem::zeroed() };
-        let res = unsafe { FindNextFileW(self.handle, &mut data) };
-        if res == 0 {
-            return if unsafe { GetLastError() } == ERROR_NO_MORE_FILES {
-                Ok(false)
+        // SAFETY: the check above guarantees off leaves room for a full record
+        // header, so every read below stays in bounds, and each one uses
+        // unaligned access since the records are not guaranteed to be aligned.
+        unsafe {
+            let rec =
+                self.buf.0.as_ptr().add(off) as *const FILE_ID_BOTH_DIR_INFO;
+            let next_entry =
+                ptr::read_unaligned(ptr::addr_of!((*rec).NextEntryOffset));
+            let attr =
+                ptr::read_unaligned(ptr::addr_of!((*rec).FileAttributes));
+            let name_len =
+                ptr::read_unaligned(ptr::addr_of!((*rec).FileNameLength))
+                    as usize;
+            let creation =
+                ptr::read_unaligned(ptr::addr_of!((*rec).CreationTime));
+            let last_access =
+                ptr::read_unaligned(ptr::addr_of!((*rec).LastAccessTime));
+            let last_write =
+                ptr::read_unaligned(ptr::addr_of!((*rec).LastWriteTime));
+            let end_of_file =
+                ptr::read_unaligned(ptr::addr_of!((*rec).EndOfFile));
+            // For reparse points, EaSize aliases the reparse tag in the
+            // FILE_ID_BOTH_DIR_INFORMATION layout that kernel32 forwards.
+            let reparse_tag = if attr & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+                ptr::read_unaligned(ptr::addr_of!((*rec).EaSize))
             } else {
-                Err(io::Error::last_os_error())
+                0
+            };
+            let name_ptr = ptr::addr_of!((*rec).FileName) as *const u16;
+            let name_off = name_ptr as usize - self.buf.0.as_ptr() as usize;
+            match name_off.checked_add(name_len) {
+                Some(end) if end <= BUF_LEN => {}
+                _ => {
+                    self.cursor = None;
+                    return Err(malformed_record());
+                }
+            }
+
+            ent.attr = attr;
+            ent.reparse_tag = reparse_tag;
+            ent.creation_time = creation as u64;
+            ent.last_access_time = last_access as u64;
+            ent.last_write_time = last_write as u64;
+            ent.file_size = end_of_file as u64;
+            ent.file_type = FileType::from_attr(attr, reparse_tag);
+
+            let name_units = name_len / 2;
+            ent.file_name_u16.clear();
+            ent.file_name_u16.reserve(name_units);
+            for i in 0..name_units {
+                ent.file_name_u16.push(ptr::read_unaligned(name_ptr.add(i)));
+            }
+
+            self.cursor = if next_entry == 0 {
+                None
+            } else {
+                match off.checked_add(next_entry as usize) {
+                    Some(next) => Some(next),
+                    None => {
+                        self.cursor = None;
+                        return Err(malformed_record());
+                    }
+                }
             };
         }
-        ent.from_find_data(&FindData(data));
+
+        ent.file_name.clear();
+        decode_utf16_into(&ent.file_name_u16, &mut ent.file_name);
         Ok(true)
     }
 
-    /// Close this find handle and return an error if closing failed.
+    /// Fill the buffer with the next batch of entries.
     ///
-    /// Note that this does not need to be called explicitly. This directory
-    /// stream will be closed automatically when it is dropped (and if an error
-    /// occurs, it is ignored). This routine is only useful if you want to
-    /// explicitly close the directory stream and check the error.
-    pub fn close(self) -> io::Result<()> {
-        let res = if unsafe { FindClose(self.handle) } == 0 {
-            Err(io::Error::last_os_error())
+    /// Returns false when the directory has been fully enumerated.
+    fn fill(&mut self) -> io::Result<bool> {
+        let class = if self.restart {
+            FileIdBothDirectoryRestartInfo
         } else {
-            Ok(())
+            FileIdBothDirectoryInfo
         };
-        // Don't drop FindHandle after we've explicitly closed the dir stream
-        // to avoid running close again.
-        mem::forget(self);
-        res
-    }
-}
-
-struct FindData(WIN32_FIND_DATAW);
-
-impl fmt::Debug for FindData {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("FindData")
-            .field("dwFileAttributes", &self.0.dwFileAttributes)
-            .field("ftCreationTime", &self.0.ftCreationTime)
-            .field("ftLastAccessTime", &self.0.ftLastAccessTime)
-            .field("ftLastWriteTime", &self.0.ftLastWriteTime)
-            .field("nFileSizeHigh", &self.0.nFileSizeHigh)
-            .field("nFileSizeLow", &self.0.nFileSizeLow)
-            .field("dwReserved0", &self.0.dwReserved0)
-            .field("dwReserved1", &self.0.dwReserved1)
-            .field("cFileName", &self.file_name())
-            .field(
-                "cAlternateFileName",
-                &OsString::from_wide(&truncate_utf16(
-                    &self.0.cAlternateFileName,
-                )),
+        // SAFETY: buf is valid for BUF_LEN bytes and outlives the call.
+        let res = unsafe {
+            GetFileInformationByHandleEx(
+                self.handle.as_raw_handle() as HANDLE,
+                class,
+                self.buf.0.as_mut_ptr().cast(),
+                BUF_LEN as u32,
             )
-            .finish()
+        };
+        if res == 0 {
+            let err = io::Error::last_os_error();
+            if err.raw_os_error() == Some(ERROR_NO_MORE_FILES as i32) {
+                return Ok(false);
+            }
+            // Keep restart set so a retry after a transient error starts the
+            // enumeration over instead of continuing one that never began.
+            return Err(err);
+        }
+        self.restart = false;
+        self.cursor = Some(0);
+        Ok(true)
     }
 }
 
-impl FindData {
-    fn creation_time(&self) -> u64 {
-        time_as_u64(&self.0.ftCreationTime)
-    }
+fn malformed_record() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        "directory entry record has out of bounds offsets",
+    )
+}
 
-    fn last_access_time(&self) -> u64 {
-        time_as_u64(&self.0.ftLastAccessTime)
-    }
-
-    fn last_write_time(&self) -> u64 {
-        time_as_u64(&self.0.ftLastWriteTime)
-    }
-
-    fn file_size(&self) -> u64 {
-        (self.0.nFileSizeHigh as u64) << 32 | self.0.nFileSizeLow as u64
-    }
-
-    /// Return an owned copy of the underlying file name as an OS string.
-    fn file_name(&self) -> OsString {
-        let file_name = truncate_utf16(&self.0.cFileName);
-        OsString::from_wide(file_name)
-    }
-
-    /// Read the contents of the underlying file name into the given OS string.
-    /// If the allocation can be reused, then it will be, otherwise it will be
-    /// overwritten with a fresh OsString.
-    ///
-    /// The second buffer provided will have the raw 16-bit code units of the
-    /// file name pushed to it.
-    fn decode_file_names_into(
-        &self,
-        dst_os: &mut OsString,
-        dst_16: &mut Vec<u16>,
-    ) {
-        // This implementation is a bit weird, but basically, there is no way
-        // to amortize OsString allocations in the general case, since the only
-        // API to build an OsString from a &[u16] is OsStringExt::from_wide,
-        // which returns an OsString.
-        //
-        // However, in the vast majority of cases, the underlying file name
-        // will be valid UTF-16, which we can transcode to UTF-8 and then
-        // push to a pre-existing OsString. It's not the best solution, but
-        // it permits reusing allocations!
-        let file_name = truncate_utf16(&self.0.cFileName);
-        dst_16.extend_from_slice(file_name);
-        for result in char::decode_utf16(file_name.iter().cloned()) {
-            match result {
-                Ok(c) => {
-                    dst_os.push(c.encode_utf8(&mut [0; 4]));
-                }
-                Err(_) => {
-                    *dst_os = OsString::from_wide(file_name);
-                    return;
-                }
+/// Decode UTF-16 code units into `dst`, reusing its allocation where possible.
+///
+/// `dst` must be empty on entry. On invalid UTF-16 it falls back to a fresh
+/// [`OsString`] that preserves the unpaired surrogates.
+fn decode_utf16_into(units: &[u16], dst: &mut OsString) {
+    for result in char::decode_utf16(units.iter().copied()) {
+        match result {
+            Ok(c) => {
+                dst.push(c.encode_utf8(&mut [0; 4]));
+            }
+            Err(_) => {
+                *dst = OsString::from_wide(units);
+                return;
             }
         }
     }
 }
 
-fn time_as_u64(time: &FILETIME) -> u64 {
+pub(crate) fn time_as_u64(
+    time: &windows_sys::Win32::Foundation::FILETIME,
+) -> u64 {
     (time.dwHighDateTime as u64) << 32 | time.dwLowDateTime as u64
 }
 
-fn intervals_to_system_time(intervals: u64) -> SystemTime {
+pub(crate) fn intervals_to_system_time(intervals: u64) -> SystemTime {
     const NANOS_IN_SECOND: u64 = 1_000_000_000;
     const NANOS_PER_INTERVAL: u64 = 100;
     const SECONDS_TO_UNIX: u64 = 11_644_473_600;
@@ -426,26 +483,6 @@ fn intervals_to_system_time(intervals: u64) -> SystemTime {
         (intervals / (NANOS_IN_SECOND / NANOS_PER_INTERVAL)) - SECONDS_TO_UNIX;
     let dur_from_unix = time::Duration::from_secs(seconds_from_unix);
     SystemTime::UNIX_EPOCH + dur_from_unix
-}
-
-fn to_utf16<T: AsRef<OsStr>>(t: T, buf: &mut Vec<u16>) -> io::Result<()> {
-    for cu16 in t.as_ref().encode_wide() {
-        if cu16 == 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "file paths on Windows cannot contain NUL bytes",
-            ));
-        }
-        buf.push(cu16);
-    }
-    Ok(())
-}
-
-fn truncate_utf16(slice: &[u16]) -> &[u16] {
-    match slice.iter().position(|c| *c == 0) {
-        Some(i) => &slice[..i],
-        None => slice,
-    }
 }
 
 pub(crate) fn escaped_u16s(slice: &[u16]) -> String {

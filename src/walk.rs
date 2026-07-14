@@ -751,7 +751,17 @@ impl IntoIter {
                 ),
             }
         };
-        #[cfg(not(walkdir_unix))]
+        #[cfg(windows)]
+        let mut list = {
+            let follow = self.opts.follow_links
+                || (dent.depth() == 0 && self.opts.follow_root_links);
+            crate::dir::DirList::open_path(
+                self.depth,
+                dent.path().to_path_buf(),
+                follow,
+            )
+        };
+        #[cfg(not(any(walkdir_unix, windows)))]
         let mut list = crate::dir::DirList::open_path(
             self.depth,
             dent.path().to_path_buf(),
@@ -924,7 +934,19 @@ fn entry_from_list(
     ))
 }
 
-#[cfg(not(walkdir_unix))]
+#[cfg(windows)]
+fn entry_from_list(
+    depth: usize,
+    list: &crate::dir::DirList,
+) -> Option<Result<DirEntry>> {
+    let entry = list.entry();
+    if entry.is_dots() {
+        return None;
+    }
+    Some(DirEntry::from_os_entry(depth, list.path(), entry))
+}
+
+#[cfg(not(any(walkdir_unix, windows)))]
 fn entry_from_list(
     depth: usize,
     list: &crate::dir::DirList,

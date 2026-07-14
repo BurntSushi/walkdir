@@ -121,7 +121,7 @@ where
         use walkdir::os::windows;
 
         let mut res = args.empty_count_result();
-        let mut handle = windows::FindHandle::open(dir)?;
+        let mut handle = windows::Dir::open(dir)?;
         let mut dent = windows::DirEntry::empty();
         loop {
             match handle.read_into(&mut dent) {
@@ -335,7 +335,7 @@ where
     {
         use walkdir::os::windows;
 
-        let mut handle = windows::FindHandle::open(dir)?;
+        let mut handle = windows::Dir::open(dir)?;
         let mut dent = windows::DirEntry::empty();
         loop {
             match handle.read_into(&mut dent) {

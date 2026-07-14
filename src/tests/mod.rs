@@ -8,3 +8,5 @@ mod openat;
 mod recursive;
 #[cfg(walkdir_unix)]
 mod unix;
+#[cfg(windows)]
+mod windows;

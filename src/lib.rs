@@ -112,6 +112,8 @@ for entry in walker.filter_entry(|e| !is_hidden(e)) {
 
 */
 
+#![deny(missing_docs)]
+
 #[cfg(doctest)]
 doc_comment::doctest!("../README.md");
 

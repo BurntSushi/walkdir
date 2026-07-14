@@ -1,6 +1,6 @@
 use std::env;
 use std::error;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use std::ffi::OsString;
 use std::fs::{self, File};
 use std::io;
@@ -9,6 +9,8 @@ use std::result;
 
 #[cfg(unix)]
 use crate::os::unix;
+#[cfg(windows)]
+use crate::os::windows;
 use crate::{DirEntry, Error};
 
 /// Skip the current test if the current environment doesn't support symlinks.
@@ -127,6 +129,42 @@ impl UnixResults {
     }
 }
 
+/// The result of running a Windows directory iterator on a single directory.
+#[cfg(windows)]
+#[derive(Debug)]
+pub struct WindowsResults {
+    ents: Vec<windows::DirEntry>,
+    errs: Vec<io::Error>,
+}
+
+#[cfg(windows)]
+impl WindowsResults {
+    /// Assert that no errors have occurred.
+    pub fn assert_no_errors(&self) {
+        assert!(
+            self.errs.is_empty(),
+            "expected to find no errors, but found: {:?}",
+            self.errs
+        );
+    }
+
+    /// Return all the successfully retrieved directory entries, sorted
+    /// lexicographically by their file name.
+    pub fn sorted_ents(&self) -> Vec<windows::DirEntry> {
+        let mut ents = self.ents.clone();
+        ents.sort_by(|e1, e2| e1.file_name_u16().cmp(e2.file_name_u16()));
+        ents
+    }
+
+    /// Return all file names from all successfully retrieved directory
+    /// entries, sorted lexicographically.
+    ///
+    /// This does not include file names that correspond to an error.
+    pub fn sorted_file_names(&self) -> Vec<OsString> {
+        self.sorted_ents().into_iter().map(|d| d.into_file_name_os()).collect()
+    }
+}
+
 /// A helper for managing a directory in which to run tests.
 ///
 /// When manipulating paths within this directory, paths are interpreted
@@ -207,6 +245,18 @@ impl Dir {
         results
     }
 
+    #[cfg(windows)]
+    pub fn run_windows(&self, h: &mut windows::Dir) -> WindowsResults {
+        let mut results = WindowsResults { ents: vec![], errs: vec![] };
+        while let Some(result) = h.read() {
+            match result {
+                Ok(ent) => results.ents.push(ent),
+                Err(err) => results.errs.push(err),
+            }
+        }
+        results
+    }
+
     /// Create a directory at the given path, while creating all intermediate
     /// directories as needed.
     pub fn mkdirp<P: AsRef<Path>>(&self, path: P) {
@@ -253,6 +303,27 @@ impl Dir {
         link_name: P2,
     ) {
         symlink_dir(self.join(src), self.join(link_name)).unwrap()
+    }
+
+    /// Create a directory junction pointing at src. Junctions need no
+    /// privilege, unlike symlinks.
+    #[cfg(windows)]
+    pub fn junction<P1: AsRef<Path>, P2: AsRef<Path>>(
+        &self,
+        src: P1,
+        link_name: P2,
+    ) {
+        use std::process::Command;
+
+        let status = Command::new("cmd")
+            .arg("/c")
+            .arg("mklink")
+            .arg("/J")
+            .arg(self.join(link_name))
+            .arg(self.join(src))
+            .status()
+            .unwrap();
+        assert!(status.success(), "failed to create junction");
     }
 }
 

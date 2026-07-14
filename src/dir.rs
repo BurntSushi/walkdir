@@ -1,6 +1,6 @@
 #[cfg(walkdir_unix)]
 use std::ffi::CStr;
-#[cfg(not(walkdir_unix))]
+#[cfg(not(any(walkdir_unix, windows)))]
 use std::fs;
 use std::io;
 #[cfg(walkdir_unix)]
@@ -11,8 +11,10 @@ use std::path::{Path, PathBuf};
 use crate::os::linux;
 #[cfg(walkdir_unix)]
 use crate::os::unix::{Dir, DirEntry as OsDirEntry};
+#[cfg(windows)]
+use crate::os::windows::{Dir as WindowsDir, DirEntry as WindowsDirEntry};
 
-#[cfg(not(walkdir_unix))]
+#[cfg(not(any(walkdir_unix, windows)))]
 #[derive(Debug)]
 pub struct DirList {
     depth: usize,
@@ -21,7 +23,7 @@ pub struct DirList {
     stream: Stream,
 }
 
-#[cfg(not(walkdir_unix))]
+#[cfg(not(any(walkdir_unix, windows)))]
 #[derive(Debug)]
 enum Stream {
     Open(fs::ReadDir),
@@ -30,7 +32,7 @@ enum Stream {
     Failed(Option<io::Error>),
 }
 
-#[cfg(not(walkdir_unix))]
+#[cfg(not(any(walkdir_unix, windows)))]
 impl DirList {
     pub fn open_path(depth: usize, path: PathBuf) -> DirList {
         let stream = match fs::read_dir(&path) {
@@ -305,6 +307,137 @@ impl DirList {
 
     pub fn spill(&mut self) {
         if let Stream::Open { .. } = self.stream {
+            let mut entries = Vec::new();
+            while let Some(result) = self.next_open() {
+                entries.push(result.map(|()| self.scratch.clone()));
+            }
+            self.stream = Stream::Spilled(entries.into_iter());
+        }
+    }
+}
+
+#[cfg(windows)]
+#[derive(Debug)]
+pub struct DirList {
+    depth: usize,
+    path: PathBuf,
+    done: bool,
+    scratch: WindowsDirEntry,
+    stream: Stream,
+}
+
+#[cfg(windows)]
+#[derive(Debug)]
+enum Stream {
+    Open(WindowsDir),
+    Spilled(std::vec::IntoIter<io::Result<WindowsDirEntry>>),
+    Built(std::vec::IntoIter<crate::Result<crate::DirEntry>>),
+    Failed(Option<io::Error>),
+}
+
+#[cfg(windows)]
+impl DirList {
+    pub fn open_path(depth: usize, path: PathBuf, follow: bool) -> DirList {
+        let stream = match WindowsDir::open_path_follow(&path, follow) {
+            Ok(dir) => Stream::Open(dir),
+            Err(err) => Stream::Failed(Some(err)),
+        };
+        DirList {
+            depth,
+            path,
+            done: false,
+            scratch: WindowsDirEntry::empty(),
+            stream,
+        }
+    }
+
+    pub fn depth(&self) -> usize {
+        self.depth
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn is_failed(&self) -> bool {
+        matches!(self.stream, Stream::Failed(_))
+    }
+
+    pub fn into_built(
+        self,
+        entries: Vec<crate::Result<crate::DirEntry>>,
+    ) -> DirList {
+        DirList {
+            depth: self.depth,
+            path: self.path,
+            done: false,
+            scratch: self.scratch,
+            stream: Stream::Built(entries.into_iter()),
+        }
+    }
+
+    pub fn next_built(&mut self) -> Option<crate::Result<crate::DirEntry>> {
+        match self.stream {
+            Stream::Built(ref mut iter) => iter.next(),
+            _ => None,
+        }
+    }
+
+    pub fn is_built(&self) -> bool {
+        matches!(self.stream, Stream::Built(_))
+    }
+
+    pub fn next(&mut self) -> Option<io::Result<()>> {
+        match self.stream {
+            Stream::Failed(ref mut err) => err.take().map(Err),
+            Stream::Spilled(ref mut iter) => match iter.next()? {
+                Ok(entry) => {
+                    self.scratch = entry;
+                    Some(Ok(()))
+                }
+                Err(err) => Some(Err(err)),
+            },
+            Stream::Built(_) => None,
+            Stream::Open(_) => self.next_open(),
+        }
+    }
+
+    pub fn entry(&self) -> &WindowsDirEntry {
+        &self.scratch
+    }
+
+    fn next_open(&mut self) -> Option<io::Result<()>> {
+        if self.done {
+            return None;
+        }
+        let result = match self.stream {
+            Stream::Open(ref mut dir) => loop {
+                match dir.read_into(&mut self.scratch) {
+                    Err(ref err)
+                        if err.kind() == io::ErrorKind::Interrupted =>
+                    {
+                        continue;
+                    }
+                    result => break result,
+                }
+            },
+            _ => unreachable!(),
+        };
+        match result {
+            Ok(true) => Some(Ok(())),
+            Ok(false) => {
+                self.done = true;
+                None
+            }
+            Err(err) => {
+                self.done = true;
+                Some(Err(err))
+            }
+        }
+    }
+
+    pub fn spill(&mut self) {
+        if let Stream::Open(_) = self.stream {
             let mut entries = Vec::new();
             while let Some(result) = self.next_open() {
                 entries.push(result.map(|()| self.scratch.clone()));

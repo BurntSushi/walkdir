@@ -1,6 +1,8 @@
 #[cfg(walkdir_unix)]
 use crate::os::unix::FileType as OsFileType;
-#[cfg(not(walkdir_unix))]
+#[cfg(windows)]
+use crate::os::windows::FileType as OsFileType;
+#[cfg(not(any(walkdir_unix, windows)))]
 use std::fs::FileType as OsFileType;
 
 /// File type yielded by a [`crate::DirEntry`].
@@ -21,6 +23,18 @@ impl FileType {
     /// Returns true if this entry is a symbolic link.
     pub fn is_symlink(&self) -> bool {
         self.0.is_symlink()
+    }
+
+    /// Returns true if this entry is a symbolic link to a directory.
+    #[cfg(windows)]
+    pub fn is_symlink_dir(&self) -> bool {
+        self.0.is_symlink_dir()
+    }
+
+    /// Returns true if this entry is a symbolic link to a file.
+    #[cfg(windows)]
+    pub fn is_symlink_file(&self) -> bool {
+        self.0.is_symlink_file()
     }
 }
 
