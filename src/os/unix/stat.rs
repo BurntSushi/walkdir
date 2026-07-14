@@ -14,27 +14,33 @@ use libc::{fstatat as fstatat64, lstat as lstat64, stat as stat64};
 #[cfg(any(target_os = "linux", target_os = "android",))]
 use libc::{fstatat64, lstat64, stat64};
 
+/// Metadata for a file as reported by stat.
 pub struct Metadata {
     stat: stat64,
 }
 
 impl Metadata {
+    /// The file type.
     pub fn file_type(&self) -> FileType {
         FileType::from_stat_mode(self.stat.st_mode as u64)
     }
 
+    /// The file size in bytes.
     pub fn len(&self) -> u64 {
         self.stat.st_size as u64
     }
 
+    /// The device the file resides on.
     pub fn dev(&self) -> u64 {
         self.stat.st_dev as u64
     }
 
+    /// The file serial number.
     pub fn ino(&self) -> u64 {
         self.stat.st_ino as u64
     }
 
+    /// The raw st_mode, including permission bits.
     pub fn mode(&self) -> u64 {
         self.stat.st_mode as u64
     }
@@ -42,6 +48,7 @@ impl Metadata {
 
 #[cfg(target_os = "netbsd")]
 impl Metadata {
+    /// The last modification time.
     pub fn modified(&self) -> io::Result<SystemTime> {
         let dur = Duration::new(
             self.stat.st_mtime as u64,
@@ -50,6 +57,7 @@ impl Metadata {
         Ok(SystemTime::UNIX_EPOCH + dur)
     }
 
+    /// The last access time.
     pub fn accessed(&self) -> io::Result<SystemTime> {
         let dur = Duration::new(
             self.stat.st_atime as u64,
@@ -58,6 +66,7 @@ impl Metadata {
         Ok(SystemTime::UNIX_EPOCH + dur)
     }
 
+    /// The creation time, when available.
     pub fn created(&self) -> io::Result<SystemTime> {
         let dur = Duration::new(
             self.stat.st_birthtime as u64,
@@ -69,6 +78,7 @@ impl Metadata {
 
 #[cfg(not(target_os = "netbsd"))]
 impl Metadata {
+    /// The last modification time.
     pub fn modified(&self) -> io::Result<SystemTime> {
         let dur = Duration::new(
             self.stat.st_mtime as u64,
@@ -77,6 +87,7 @@ impl Metadata {
         Ok(SystemTime::UNIX_EPOCH + dur)
     }
 
+    /// The last access time.
     pub fn accessed(&self) -> io::Result<SystemTime> {
         let dur = Duration::new(
             self.stat.st_atime as u64,
@@ -91,6 +102,7 @@ impl Metadata {
         target_os = "macos",
         target_os = "ios"
     ))]
+    /// The creation time, when available.
     pub fn created(&self) -> io::Result<SystemTime> {
         let dur = Duration::new(
             self.stat.st_birthtime as u64,
@@ -105,6 +117,7 @@ impl Metadata {
         target_os = "macos",
         target_os = "ios"
     )))]
+    /// The creation time, when available.
     pub fn created(&self) -> io::Result<SystemTime> {
         Err(io::Error::new(
             io::ErrorKind::Other,
@@ -114,8 +127,24 @@ impl Metadata {
 }
 
 /// One of seven possible file types on Unix.
-#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy)]
 pub struct FileType(libc::mode_t);
+
+/// Compare only the [`S_IFMT`](`libc::S_IFMT`) bits since stat modes
+/// also carry permission bits.
+impl PartialEq for FileType {
+    fn eq(&self, other: &FileType) -> bool {
+        self.masked() == other.masked()
+    }
+}
+
+impl Eq for FileType {}
+
+impl std::hash::Hash for FileType {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.masked().hash(state);
+    }
+}
 
 impl fmt::Debug for FileType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -136,11 +165,15 @@ impl fmt::Debug for FileType {
         } else {
             "Unknown"
         };
-        write!(f, "FileType({})", human)
+        write!(f, "FileType({human})")
     }
 }
 
 impl FileType {
+    fn masked(&self) -> libc::mode_t {
+        self.0 & libc::S_IFMT
+    }
+
     /// Create a new file type from a directory entry's type field.
     ///
     /// If the given type is not recognized or is `DT_UNKNOWN`, then `None`
@@ -214,11 +247,13 @@ impl FileType {
     }
 }
 
+/// Run stat on the given path and return the metadata.
 pub fn stat<P: Into<PathBuf>>(path: P) -> io::Result<Metadata> {
     let bytes = path.into().into_os_string().into_vec();
     stat_c(&CString::new(bytes)?)
 }
 
+/// Like stat but accepts a pre-made C string.
 pub fn stat_c(path: &CStr) -> io::Result<Metadata> {
     let mut stat: stat64 = unsafe { mem::zeroed() };
     let res = unsafe { stat64(path.as_ptr(), &mut stat) };
@@ -229,11 +264,13 @@ pub fn stat_c(path: &CStr) -> io::Result<Metadata> {
     }
 }
 
+/// Like stat but does not follow a trailing symlink.
 pub fn lstat<P: Into<PathBuf>>(path: P) -> io::Result<Metadata> {
     let bytes = path.into().into_os_string().into_vec();
     lstat_c(&CString::new(bytes)?)
 }
 
+/// Like lstat but accepts a pre-made C string.
 pub fn lstat_c(path: &CStr) -> io::Result<Metadata> {
     let mut stat: stat64 = unsafe { mem::zeroed() };
     let res = unsafe { lstat64(path.as_ptr(), &mut stat) };
@@ -244,6 +281,7 @@ pub fn lstat_c(path: &CStr) -> io::Result<Metadata> {
     }
 }
 
+/// Run stat on `name` relative to the open directory `parent_dirfd`.
 pub fn statat<N: Into<OsString>>(
     parent_dirfd: RawFd,
     name: N,
@@ -252,6 +290,7 @@ pub fn statat<N: Into<OsString>>(
     statat_c(parent_dirfd, &CString::new(bytes)?)
 }
 
+/// Like statat but accepts a pre-made C string.
 pub fn statat_c(parent_dirfd: RawFd, name: &CStr) -> io::Result<Metadata> {
     let mut stat: stat64 = unsafe { mem::zeroed() };
     let res = unsafe { fstatat64(parent_dirfd, name.as_ptr(), &mut stat, 0) };
@@ -262,6 +301,7 @@ pub fn statat_c(parent_dirfd: RawFd, name: &CStr) -> io::Result<Metadata> {
     }
 }
 
+/// Like statat but does not follow a trailing symlink.
 pub fn lstatat<N: Into<OsString>>(
     parent_dirfd: RawFd,
     name: N,
@@ -270,6 +310,7 @@ pub fn lstatat<N: Into<OsString>>(
     lstatat_c(parent_dirfd, &CString::new(bytes)?)
 }
 
+/// Like lstatat but accepts a pre-made C string.
 pub fn lstatat_c(parent_dirfd: RawFd, name: &CStr) -> io::Result<Metadata> {
     let mut stat: stat64 = unsafe { mem::zeroed() };
     let res = unsafe {

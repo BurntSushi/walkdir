@@ -153,7 +153,9 @@ impl<'a> DirEntry<'a> {
 ///
 /// A cursor can and should be reused across multiple calls to `getdents`. A
 /// cursor is not tied to any one particular directory.
-#[derive(Clone, Debug)]
+///
+/// This is not `Clone` because shallow clones would double-free the buffer.
+#[derive(Debug)]
 pub struct DirEntryCursor {
     /// Spiritually, this is a *mut RawDirEntry. Unfortunately, this doesn't
     /// quite make sense since a value with type `RawDirEntry` does not
@@ -182,8 +184,8 @@ pub struct DirEntryCursor {
     advanced: bool,
 }
 
-// The cursor owns its buffer, and all operations that move its interior
-// pointer require exclusive access.
+// This is sound because the cursor uniquely owns its heap buffer (freed on drop) and
+// `cursor` is an interior pointer into `raw`, so there is no shared aliasing.
 unsafe impl Send for DirEntryCursor {}
 unsafe impl Sync for DirEntryCursor {}
 
@@ -350,6 +352,7 @@ impl DirEntryCursor {
     /// Rewind this cursor such that it points to the first directory entry.
     pub fn rewind(&mut self) {
         self.cursor = self.raw;
+        self.advanced = false;
     }
 
     /// Clear this cursor such that it has no entries.
@@ -357,5 +360,11 @@ impl DirEntryCursor {
         self.cursor = self.raw;
         self.len = 0;
         self.advanced = false;
+    }
+}
+
+impl Default for DirEntryCursor {
+    fn default() -> Self {
+        Self::new()
     }
 }

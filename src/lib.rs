@@ -5,6 +5,14 @@ iteration, such as whether to follow symbolic links (default off), limit the
 maximum number of simultaneous open file descriptors and the ability to
 efficiently skip descending into directories.
 
+On supported Unix platforms, traversal opens children relative to their
+already-open parent. This avoids `PATH_MAX` and prevents symlink swaps between
+listing and descending while that parent remains open.
+
+When `max_open` closes an older parent, or `sort_by` reads a directory into
+memory, descent falls back to the full path. That fallback retains the old
+path-length and race limitations.
+
 To use this crate, add `walkdir` as a dependency to your project's
 `Cargo.toml`:
 

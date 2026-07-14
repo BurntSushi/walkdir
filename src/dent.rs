@@ -206,15 +206,22 @@ impl DirEntry {
     pub(crate) fn from_os_entry(
         depth: usize,
         parent_path: &Path,
+        parent_fd: Option<std::os::unix::io::RawFd>,
         ent: &crate::os::unix::DirEntry,
     ) -> Result<DirEntry> {
         let path = parent_path.join(ent.file_name_os());
         let ty = match ent.file_type() {
             Some(file_type) => file_type.into(),
-            None => crate::os::unix::lstat(path.clone())
-                .map_err(|err| Error::from_path(depth, path.clone(), err))?
-                .file_type()
-                .into(),
+            None => {
+                let metadata = match parent_fd {
+                    Some(fd) => {
+                        crate::os::unix::lstatat_c(fd, ent.file_name())
+                    }
+                    None => crate::os::unix::lstat(path.clone()),
+                }
+                .map_err(|err| Error::from_path(depth, path.clone(), err))?;
+                metadata.file_type().into()
+            }
         };
         Ok(DirEntry { path, ty, follow_link: false, depth, ino: ent.ino() })
     }

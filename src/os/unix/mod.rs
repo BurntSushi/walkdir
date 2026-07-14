@@ -152,6 +152,12 @@ impl DirEntry {
         &self.file_name[..self.file_name.len() - 1]
     }
 
+    /// Returns true if this entry is the `.` or `..` pseudo-entry.
+    #[inline]
+    pub fn is_dots(&self) -> bool {
+        matches!(self.file_name_bytes(), b"." | b"..")
+    }
+
     /// Consume this directory entry and return the underlying bytes without
     /// a `NUL` terminator.
     #[inline]
@@ -231,10 +237,9 @@ impl FromRawFd for DirFd {
 
 impl io::Seek for DirFd {
     fn seek(&mut self, pos: io::SeekFrom) -> io::Result<u64> {
-        let mut file = unsafe { File::from_raw_fd(self.0) };
-        let res = file.seek(pos);
-        let _ = file.into_raw_fd();
-        res
+        let mut file =
+            mem::ManuallyDrop::new(unsafe { File::from_raw_fd(self.0) });
+        file.seek(pos)
     }
 }
 
@@ -255,9 +260,16 @@ impl DirFd {
     /// This is just like `DirFd::open`, except it accepts a pre-made C string.
     /// As such, this only returns an error when opening the directory fails.
     pub fn open_c(dir_path: &CStr) -> io::Result<DirFd> {
-        let flags = libc::O_RDONLY | libc::O_CLOEXEC;
-        #[cfg(not(target_os = "solaris"))]
-        let flags = flags | libc::O_DIRECTORY;
+        DirFd::open_c_follow(dir_path, true)
+    }
+
+    /// Protect the final component with [`O_NOFOLLOW`](`libc::O_NOFOLLOW`)
+    /// when `follow` is false.
+    pub fn open_c_follow(dir_path: &CStr, follow: bool) -> io::Result<DirFd> {
+        let mut flags = libc::O_RDONLY | libc::O_CLOEXEC | libc::O_DIRECTORY;
+        if !follow {
+            flags |= libc::O_NOFOLLOW;
+        }
         // SAFETY: This is safe since we've guaranteed that cstr has no
         // interior NUL bytes and is terminated by a NUL.
         let fd = unsafe { libc::open(dir_path.as_ptr(), flags) };
@@ -299,9 +311,20 @@ impl DirFd {
         parent_dirfd: RawFd,
         dir_name: &CStr,
     ) -> io::Result<DirFd> {
-        let flags = libc::O_RDONLY | libc::O_CLOEXEC;
-        #[cfg(not(target_os = "solaris"))]
-        let flags = flags | libc::O_DIRECTORY;
+        DirFd::openat_c_follow(parent_dirfd, dir_name, true)
+    }
+
+    /// Protect `dir_name` with [`O_NOFOLLOW`](`libc::O_NOFOLLOW`) when `follow`
+    /// is false.
+    pub fn openat_c_follow(
+        parent_dirfd: RawFd,
+        dir_name: &CStr,
+        follow: bool,
+    ) -> io::Result<DirFd> {
+        let mut flags = libc::O_RDONLY | libc::O_CLOEXEC | libc::O_DIRECTORY;
+        if !follow {
+            flags |= libc::O_NOFOLLOW;
+        }
         // SAFETY: This is safe since we've guaranteed that cstr has no
         // interior NUL bytes and is terminated by a NUL.
         let fd =
@@ -340,7 +363,7 @@ impl DirFd {
 #[derive(Debug)]
 pub struct Dir(NonNull<libc::DIR>);
 
-// The stream owns its DIR pointer, and reads require exclusive access.
+// This is sound because `Dir` uniquely owns its `DIR*`.
 unsafe impl Send for Dir {}
 unsafe impl Sync for Dir {}
 
@@ -360,14 +383,6 @@ impl AsRawFd for Dir {
         // guess we just ignore it. In particular, it looks like common
         // implementations (e.g., Linux) do not actually ever return an error.
         unsafe { libc::dirfd(self.0.as_ptr()) }
-    }
-}
-
-impl IntoRawFd for Dir {
-    fn into_raw_fd(self) -> RawFd {
-        let fd = self.as_raw_fd();
-        mem::forget(self);
-        fd
     }
 }
 
@@ -409,6 +424,23 @@ impl Dir {
         }
     }
 
+    /// Convert an open directory fd into a directory stream.
+    fn from_dirfd(dirfd: DirFd) -> io::Result<Dir> {
+        // SAFETY: dirfd is valid. Success transfers fd ownership to DIR.
+        match NonNull::new(unsafe { libc::fdopendir(dirfd.as_raw_fd()) }) {
+            None => Err(io::Error::last_os_error()),
+            Some(dir) => {
+                let _ = dirfd.into_raw_fd();
+                Ok(Dir(dir))
+            }
+        }
+    }
+
+    /// Open by full path with the requested follow mode.
+    pub fn open_c_follow(dir_path: &CStr, follow: bool) -> io::Result<Dir> {
+        Dir::from_dirfd(DirFd::open_c_follow(dir_path, follow)?)
+    }
+
     /// Open a handle to a directory stream for the given directory name, where
     /// the file descriptor corresponds to the parent directory of the given
     /// name.
@@ -434,12 +466,20 @@ impl Dir {
     /// for the directory name. As such, this only returns an error when
     /// opening the directory stream fails.
     pub fn openat_c(parent_dirfd: RawFd, dir_name: &CStr) -> io::Result<Dir> {
-        let dirfd = DirFd::openat_c(parent_dirfd, dir_name)?;
-        // SAFETY: fd is a valid file descriptor, per the above check.
-        match NonNull::new(unsafe { libc::fdopendir(dirfd.into_raw_fd()) }) {
-            None => Err(io::Error::last_os_error()),
-            Some(dir) => Ok(Dir(dir)),
-        }
+        Dir::from_dirfd(DirFd::openat_c(parent_dirfd, dir_name)?)
+    }
+
+    /// Open relative to `parent_dirfd` with the requested follow mode.
+    pub fn openat_c_follow(
+        parent_dirfd: RawFd,
+        dir_name: &CStr,
+        follow: bool,
+    ) -> io::Result<Dir> {
+        Dir::from_dirfd(DirFd::openat_c_follow(
+            parent_dirfd,
+            dir_name,
+            follow,
+        )?)
     }
 
     /// Read the next directory entry from this stream.

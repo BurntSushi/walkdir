@@ -1,4 +1,6 @@
 use std::cmp::{self, min};
+#[cfg(walkdir_unix)]
+use std::ffi::CString;
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -728,6 +730,28 @@ impl IntoIter {
             self.oldest_opened = self.oldest_opened.checked_add(1).unwrap();
         }
 
+        #[cfg(walkdir_unix)]
+        let mut list = {
+            let follow = self.opts.follow_links
+                || (dent.depth() == 0 && self.opts.follow_root_links);
+            match self.stack_list.last().and_then(|list| list.parent_handle())
+            {
+                Some(parent) => crate::dir::DirList::openat(
+                    self.depth,
+                    parent,
+                    &cstr_of_file_name(dent.path()),
+                    follow,
+                    dent.path().to_path_buf(),
+                ),
+                None => crate::dir::DirList::open_path(
+                    self.depth,
+                    dent.path().to_path_buf(),
+                    &cstr_of_path(dent.path()),
+                    follow,
+                ),
+            }
+        };
+        #[cfg(not(walkdir_unix))]
         let mut list = crate::dir::DirList::open_path(
             self.depth,
             dent.path().to_path_buf(),
@@ -848,6 +872,25 @@ impl IntoIter {
         Ok(())
     }
 
+    #[cfg(walkdir_unix)]
+    fn is_same_file_system(&mut self, dent: &DirEntry) -> Result<bool> {
+        let parent =
+            self.stack_list.last().and_then(|list| list.parent_handle());
+        let dent_device = match parent {
+            Some(fd) => {
+                crate::os::unix::statat_c(fd, &cstr_of_file_name(dent.path()))
+                    .map(|metadata| metadata.dev())
+            }
+            None => util::device_num(dent.path()),
+        }
+        .map_err(|err| Error::from_entry(dent, err))?;
+        Ok(self
+            .root_device
+            .map(|device| device == dent_device)
+            .expect("BUG: called is_same_file_system without root device"))
+    }
+
+    #[cfg(not(walkdir_unix))]
     fn is_same_file_system(&mut self, dent: &DirEntry) -> Result<bool> {
         let dent_device = util::device_num(dent.path())
             .map_err(|err| Error::from_entry(dent, err))?;
@@ -873,7 +916,12 @@ fn entry_from_list(
     if entry.file_name_bytes() == b"." || entry.file_name_bytes() == b".." {
         return None;
     }
-    Some(DirEntry::from_os_entry(depth, list.path(), entry))
+    Some(DirEntry::from_os_entry(
+        depth,
+        list.path(),
+        list.parent_handle(),
+        entry,
+    ))
 }
 
 #[cfg(not(walkdir_unix))]
@@ -898,6 +946,22 @@ fn dir_read_error(
     } else {
         Error::from_io(entry_depth, err)
     }
+}
+
+#[cfg(walkdir_unix)]
+fn cstr_of_path(path: &Path) -> CString {
+    use std::os::unix::ffi::OsStrExt;
+
+    CString::new(path.as_os_str().as_bytes())
+        .expect("path has no interior NUL")
+}
+
+#[cfg(walkdir_unix)]
+fn cstr_of_file_name(path: &Path) -> CString {
+    use std::os::unix::ffi::OsStrExt;
+
+    let name = path.file_name().unwrap_or(path.as_os_str());
+    CString::new(name.as_bytes()).expect("name has no interior NUL")
 }
 
 /// A recursive directory iterator that skips entries.

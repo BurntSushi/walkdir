@@ -145,7 +145,7 @@ impl RawPathBuf {
         if self.buf.last() != Some(&b'/') {
             self.buf.push(b'/');
         }
-        if name.to_bytes().get(0) == Some(&b'/') {
+        if name.to_bytes().first() == Some(&b'/') {
             debug_assert_eq!(self.buf.last(), Some(&b'/'));
             self.buf.pop();
         }
