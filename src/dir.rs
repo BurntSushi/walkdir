@@ -7,7 +7,8 @@ use std::io;
 use std::os::unix::io::{AsRawFd, RawFd};
 #[cfg(windows)]
 use std::os::windows::io::{AsRawHandle, RawHandle};
-use std::path::{Path, PathBuf};
+#[cfg(not(walkdir_unix))]
+use std::path::Path;
 
 #[cfg(walkdir_getdents)]
 use crate::os::linux;
@@ -20,7 +21,6 @@ use crate::os::windows::{Dir as WindowsDir, DirEntry as WindowsDirEntry};
 #[derive(Debug)]
 pub struct DirList {
     depth: usize,
-    path: PathBuf,
     scratch: Option<fs::DirEntry>,
     stream: Stream,
 }
@@ -36,20 +36,16 @@ enum Stream {
 
 #[cfg(not(any(walkdir_unix, windows)))]
 impl DirList {
-    pub fn open_path(depth: usize, path: PathBuf) -> DirList {
-        let stream = match fs::read_dir(&path) {
+    pub fn open_path(depth: usize, path: &Path) -> DirList {
+        let stream = match fs::read_dir(path) {
             Ok(iter) => Stream::Open(iter),
             Err(err) => Stream::Failed(Some(err)),
         };
-        DirList { depth, path, scratch: None, stream }
+        DirList { depth, scratch: None, stream }
     }
 
     pub fn depth(&self) -> usize {
         self.depth
-    }
-
-    pub fn path(&self) -> &Path {
-        &self.path
     }
 
     pub fn is_failed(&self) -> bool {
@@ -62,7 +58,6 @@ impl DirList {
     ) -> DirList {
         DirList {
             depth: self.depth,
-            path: self.path,
             scratch: self.scratch,
             stream: Stream::Built(entries.into_iter()),
         }
@@ -114,7 +109,6 @@ impl DirList {
 #[derive(Debug)]
 pub struct DirList {
     depth: usize,
-    path: PathBuf,
     done: bool,
     scratch: OsDirEntry,
     stream: Stream,
@@ -135,11 +129,7 @@ enum Stream {
 
 #[cfg(walkdir_unix)]
 impl DirList {
-    fn from_open(
-        depth: usize,
-        path: PathBuf,
-        result: io::Result<Dir>,
-    ) -> DirList {
+    fn from_open(depth: usize, result: io::Result<Dir>) -> DirList {
         let stream = match result {
             Ok(dir) => Stream::Open {
                 dir,
@@ -148,22 +138,11 @@ impl DirList {
             },
             Err(err) => Stream::Failed(Some(err)),
         };
-        DirList {
-            depth,
-            path,
-            done: false,
-            scratch: OsDirEntry::empty(),
-            stream,
-        }
+        DirList { depth, done: false, scratch: OsDirEntry::empty(), stream }
     }
 
-    pub fn open_path(
-        depth: usize,
-        path: PathBuf,
-        path_c: &CStr,
-        follow: bool,
-    ) -> DirList {
-        DirList::from_open(depth, path, Dir::open_c_follow(path_c, follow))
+    pub fn open_path(depth: usize, path_c: &CStr, follow: bool) -> DirList {
+        DirList::from_open(depth, Dir::open_c_follow(path_c, follow))
     }
 
     pub fn openat(
@@ -171,21 +150,12 @@ impl DirList {
         parent: RawFd,
         name: &CStr,
         follow: bool,
-        path: PathBuf,
     ) -> DirList {
-        DirList::from_open(
-            depth,
-            path,
-            Dir::openat_c_follow(parent, name, follow),
-        )
+        DirList::from_open(depth, Dir::openat_c_follow(parent, name, follow))
     }
 
     pub fn depth(&self) -> usize {
         self.depth
-    }
-
-    pub fn path(&self) -> &Path {
-        &self.path
     }
 
     pub fn parent_handle(&self) -> Option<RawFd> {
@@ -205,7 +175,6 @@ impl DirList {
     ) -> DirList {
         DirList {
             depth: self.depth,
-            path: self.path,
             done: false,
             scratch: self.scratch,
             stream: Stream::Built(entries.into_iter()),
@@ -322,7 +291,6 @@ impl DirList {
 #[derive(Debug)]
 pub struct DirList {
     depth: usize,
-    path: PathBuf,
     done: bool,
     scratch: WindowsDirEntry,
     stream: Stream,
@@ -339,27 +307,21 @@ enum Stream {
 
 #[cfg(windows)]
 impl DirList {
-    fn from_open(
-        depth: usize,
-        path: PathBuf,
-        result: io::Result<WindowsDir>,
-    ) -> DirList {
+    fn from_open(depth: usize, result: io::Result<WindowsDir>) -> DirList {
         let stream = match result {
             Ok(dir) => Stream::Open(dir),
             Err(err) => Stream::Failed(Some(err)),
         };
         DirList {
             depth,
-            path,
             done: false,
             scratch: WindowsDirEntry::empty(),
             stream,
         }
     }
 
-    pub fn open_path(depth: usize, path: PathBuf, follow: bool) -> DirList {
-        let result = WindowsDir::open_path_follow(&path, follow);
-        DirList::from_open(depth, path, result)
+    pub fn open_path(depth: usize, path: &Path, follow: bool) -> DirList {
+        DirList::from_open(depth, WindowsDir::open_path_follow(path, follow))
     }
 
     pub fn openat(
@@ -367,21 +329,15 @@ impl DirList {
         parent: RawHandle,
         name: &[u16],
         follow: bool,
-        path: PathBuf,
     ) -> DirList {
         DirList::from_open(
             depth,
-            path,
             WindowsDir::openat_follow(parent, name, follow),
         )
     }
 
     pub fn depth(&self) -> usize {
         self.depth
-    }
-
-    pub fn path(&self) -> &Path {
-        &self.path
     }
 
     pub fn parent_handle(&self) -> Option<RawHandle> {
@@ -401,7 +357,6 @@ impl DirList {
     ) -> DirList {
         DirList {
             depth: self.depth,
-            path: self.path,
             done: false,
             scratch: self.scratch,
             stream: Stream::Built(entries.into_iter()),

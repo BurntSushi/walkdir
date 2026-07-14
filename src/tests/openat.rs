@@ -13,12 +13,7 @@ fn dirlist_reads_all_entries() {
     let dir = Dir::tmp();
     dir.touch_all(&["a", "b", "c"]);
 
-    let mut list = DirList::open_path(
-        0,
-        dir.path().to_path_buf(),
-        &cstr(dir.path()),
-        true,
-    );
+    let mut list = DirList::open_path(0, &cstr(dir.path()), true);
     let mut names = vec![];
     while let Some(res) = list.next() {
         res.unwrap();
@@ -45,8 +40,7 @@ fn openat_fifo_fails_fast() {
     // A dir swapped for a FIFO must fail to open, not block waiting for a writer.
     let dfd = crate::os::unix::DirFd::open_c(&cstr(dir.path())).unwrap();
     let name = CString::new("fifo").unwrap();
-    let mut list =
-        DirList::openat(1, dfd.as_raw_fd(), &name, false, dir.join("fifo"));
+    let mut list = DirList::openat(1, dfd.as_raw_fd(), &name, false);
     assert!(list.is_failed());
     assert!(list.next().unwrap().is_err());
 }

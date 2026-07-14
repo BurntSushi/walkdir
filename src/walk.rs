@@ -153,6 +153,7 @@ impl IntoIterator for WalkDir {
             start: Some(self.root),
             stack_list: vec![],
             stack_path: vec![],
+            path_buf: PathBuf::new(),
             oldest_opened: 0,
             depth: 0,
             deferred_dirs: vec![],
@@ -446,6 +447,8 @@ pub struct IntoIter {
     /// This is *only* used when `follow_links` is enabled. In all other cases
     /// this stack is empty.
     stack_path: Vec<Ancestor>,
+    /// The path of the directory currently on top of `stack_list`.
+    path_buf: PathBuf,
     /// An index into `stack_list` that points to the oldest open directory
     /// handle. If the maximum fd limit is reached and a new directory needs to
     /// be read, the handle at this index is spilled before the new directory is
@@ -730,6 +733,18 @@ impl IntoIter {
             self.oldest_opened = self.oldest_opened.checked_add(1).unwrap();
         }
 
+        if self.opts.follow_links {
+            let ancestor = Ancestor::new(dent)
+                .map_err(|err| Error::from_io(self.depth, err))?;
+            self.stack_path.push(ancestor);
+        }
+        if dent.depth() == 0 {
+            self.path_buf.clear();
+            self.path_buf.push(dent.path());
+        } else {
+            self.path_buf.push(dent.file_name());
+        }
+
         #[cfg(walkdir_unix)]
         let mut list = {
             let follow = self.opts.follow_links
@@ -741,11 +756,9 @@ impl IntoIter {
                     parent,
                     &cstr_of_file_name(dent.path()),
                     follow,
-                    dent.path().to_path_buf(),
                 ),
                 None => crate::dir::DirList::open_path(
                     self.depth,
-                    dent.path().to_path_buf(),
                     &cstr_of_path(dent.path()),
                     follow,
                 ),
@@ -762,20 +775,16 @@ impl IntoIter {
                     parent,
                     &wide_of_file_name(dent.path()),
                     follow,
-                    dent.path().to_path_buf(),
                 ),
                 None => crate::dir::DirList::open_path(
                     self.depth,
-                    dent.path().to_path_buf(),
+                    dent.path(),
                     follow,
                 ),
             }
         };
         #[cfg(not(any(walkdir_unix, windows)))]
-        let mut list = crate::dir::DirList::open_path(
-            self.depth,
-            dent.path().to_path_buf(),
-        );
+        let mut list = crate::dir::DirList::open_path(self.depth, dent.path());
 
         // Sorters need a materialized directory.
         if self.opts.sorter.is_some() {
@@ -785,16 +794,18 @@ impl IntoIter {
             while let Some(res) = list.next() {
                 match res {
                     Ok(()) => {
-                        if let Some(entry) =
-                            entry_from_list(self.depth + 1, &list)
-                        {
+                        if let Some(entry) = entry_from_list(
+                            self.depth + 1,
+                            &self.path_buf,
+                            &list,
+                        ) {
                             ents.push(entry);
                         }
                     }
                     Err(err) => ents.push(Err(dir_read_error(
                         open_failure,
                         self.depth,
-                        list.path(),
+                        &self.path_buf,
                         self.depth + 1,
                         err,
                     ))),
@@ -811,12 +822,6 @@ impl IntoIter {
             list = list.into_built(ents);
         }
 
-        // Push after stack_path so both stacks stay paired on failure.
-        if self.opts.follow_links {
-            let ancestor = Ancestor::new(dent)
-                .map_err(|err| Error::from_io(self.depth, err))?;
-            self.stack_path.push(ancestor);
-        }
         self.stack_list.push(list);
         Ok(())
     }
@@ -826,6 +831,11 @@ impl IntoIter {
         if self.opts.follow_links {
             self.stack_path.pop().expect("BUG: list/path stacks out of sync");
         }
+        if self.stack_list.is_empty() {
+            self.path_buf.clear();
+        } else {
+            self.path_buf.pop();
+        }
         // If everything in the stack is already closed, then there is
         // room for at least one more open descriptor and it will
         // always be at the top of the stack.
@@ -834,8 +844,10 @@ impl IntoIter {
 
     /// Pull the next entry from the active directory.
     fn next_entry(&mut self) -> Option<Result<DirEntry>> {
+        let depth = self.depth;
+        let path = &self.path_buf;
+        let list = self.stack_list.last_mut()?;
         loop {
-            let list = self.stack_list.last_mut()?;
             if list.is_built() {
                 return list.next_built();
             }
@@ -848,13 +860,13 @@ impl IntoIter {
                     return Some(Err(dir_read_error(
                         open_failure,
                         list_depth,
-                        list.path(),
-                        self.depth,
+                        path,
+                        depth,
                         err,
                     )))
                 }
                 Some(Ok(())) => {
-                    if let Some(entry) = entry_from_list(self.depth, list) {
+                    if let Some(entry) = entry_from_list(depth, path, list) {
                         return Some(entry);
                     }
                 }
@@ -930,35 +942,33 @@ impl std::iter::FusedIterator for IntoIter {}
 #[cfg(walkdir_unix)]
 fn entry_from_list(
     depth: usize,
+    path: &Path,
     list: &crate::dir::DirList,
 ) -> Option<Result<DirEntry>> {
     let entry = list.entry();
     if entry.file_name_bytes() == b"." || entry.file_name_bytes() == b".." {
         return None;
     }
-    Some(DirEntry::from_os_entry(
-        depth,
-        list.path(),
-        list.parent_handle(),
-        entry,
-    ))
+    Some(DirEntry::from_os_entry(depth, path, list.parent_handle(), entry))
 }
 
 #[cfg(windows)]
 fn entry_from_list(
     depth: usize,
+    path: &Path,
     list: &crate::dir::DirList,
 ) -> Option<Result<DirEntry>> {
     let entry = list.entry();
     if entry.is_dots() {
         return None;
     }
-    Some(DirEntry::from_os_entry(depth, list.path(), entry))
+    Some(DirEntry::from_os_entry(depth, path, entry))
 }
 
 #[cfg(not(any(walkdir_unix, windows)))]
 fn entry_from_list(
     depth: usize,
+    _path: &Path,
     list: &crate::dir::DirList,
 ) -> Option<Result<DirEntry>> {
     Some(DirEntry::from_entry(depth, list.entry()))
