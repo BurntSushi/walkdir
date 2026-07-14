@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use crate::tests::util::{self, Dir};
+use crate::tests::util::Dir;
 use crate::WalkDir;
 
 #[test]
@@ -388,6 +388,8 @@ fn sym_root_file_follow() {
 
 #[test]
 fn broken_sym_root_dir_nofollow_and_root_nofollow() {
+    skip_if_no_symlinks!();
+
     let dir = Dir::tmp();
     dir.symlink_dir("broken", "a-link");
 
@@ -404,6 +406,8 @@ fn broken_sym_root_dir_nofollow_and_root_nofollow() {
 
 #[test]
 fn broken_sym_root_dir_follow_and_root_nofollow() {
+    skip_if_no_symlinks!();
+
     let dir = Dir::tmp();
     dir.symlink_dir("broken", "a-link");
 
@@ -421,6 +425,8 @@ fn broken_sym_root_dir_follow_and_root_nofollow() {
 
 #[test]
 fn broken_sym_root_dir_root_is_always_followed() {
+    skip_if_no_symlinks!();
+
     let dir = Dir::tmp();
     dir.symlink_dir("broken", "a-link");
 
@@ -439,6 +445,8 @@ fn broken_sym_root_dir_root_is_always_followed() {
 
 #[test]
 fn sym_root_dir_nofollow_root_nofollow() {
+    skip_if_no_symlinks!();
+
     let dir = Dir::tmp();
     dir.mkdirp("a");
     dir.symlink_dir("a", "a-link");

@@ -1,100 +1,94 @@
-#[cfg(unix)]
-use std::ffi::CStr;
+use std::fs;
 use std::io;
-#[cfg(unix)]
-use std::os::unix::io::RawFd;
-
-#[cfg(target_os = "linux")]
-use crate::os::linux;
-#[cfg(unix)]
-use crate::os::unix;
-#[cfg(unix)]
-use crate::os::unix::RawPathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
-pub struct Cursor {
-    #[cfg(unix)]
-    dir: unix::Dir,
-    #[cfg(unix)]
-    dent: unix::DirEntry,
-    #[cfg(target_os = "linux")]
-    linux_cursor: linux::DirEntryCursor,
-}
-
-impl Cursor {
-    #[cfg(unix)]
-    pub fn new(parent: RawFd, dir_name: &CStr) -> io::Result<Cursor> {
-        let dir = unix::Dir::openat_c(parent, dir_name)?;
-        Ok(Cursor {
-            dir,
-            #[cfg(unix)]
-            dent: unix::DirEntry::empty(),
-            #[cfg(target_os = "linux")]
-            linux_cursor: linux::DirEntryCursor::new(),
-        })
-    }
-
-    /// Reset this cursor to the beginning of the given directory.
-    ///
-    /// An error is returned if the given directory could not be opened for
-    /// reading. If an error is returned, the behavior of this cursor is
-    /// unspecified until a subsequent and successful `reset` call is made.
-    #[cfg(unix)]
-    pub fn reset(&mut self, parent: RawFd, dir_name: &CStr) -> io::Result<()> {
-        self.dir = unix::Dir::openat_c(parent, dir_name)?;
-        Ok(())
-    }
-
-    #[cfg(all(unix, walkdir_getdents))]
-    pub fn read(&mut self) -> io::Result<Option<CursorEntry>> {
-        use std::os::unix::io::AsRawFd;
-
-        let c = &mut self.linux_cursor;
-        loop {
-            if c.advance() {
-                if is_dots(c.current().file_name_bytes()) {
-                    continue;
-                }
-                return Ok(Some(CursorEntry { linux_dent: c.current() }));
-            }
-            if !linux::getdents(self.dir.as_raw_fd(), c)? {
-                return Ok(None);
-            }
-            // This is guaranteed since getdents returning true means
-            // that the buffer has at least one item in it.
-            assert!(c.advance());
-            if is_dots(c.current().file_name_bytes()) {
-                continue;
-            }
-            return Ok(Some(CursorEntry { linux_dent: c.current() }));
-        }
-    }
-
-    #[cfg(all(unix, not(walkdir_getdents)))]
-    pub fn read(&mut self) -> io::Result<Option<CursorEntry>> {
-        loop {
-            return if self.dir.read_into(&mut self.dent)? {
-                if is_dots(dent.file_name_bytes()) {
-                    continue;
-                }
-                Ok(Some(CursorEntry { cursor: self }))
-            } else {
-                Ok(None)
-            };
-        }
-    }
+pub struct DirList {
+    depth: usize,
+    path: PathBuf,
+    scratch: Option<fs::DirEntry>,
+    stream: Stream,
 }
 
 #[derive(Debug)]
-pub struct CursorEntry<'a> {
-    #[cfg(not(all(unix, walkdir_getdents)))]
-    cursor: &'a Cursor,
-    #[cfg(all(unix, walkdir_getdents))]
-    linux_dent: linux::DirEntry<'a>,
+enum Stream {
+    Open(fs::ReadDir),
+    Spilled(std::vec::IntoIter<io::Result<fs::DirEntry>>),
+    Built(std::vec::IntoIter<crate::Result<crate::DirEntry>>),
+    Failed(Option<io::Error>),
 }
 
-impl<'a> CursorEntry<'a> {}
+impl DirList {
+    pub fn open_path(depth: usize, path: PathBuf) -> DirList {
+        let stream = match fs::read_dir(&path) {
+            Ok(iter) => Stream::Open(iter),
+            Err(err) => Stream::Failed(Some(err)),
+        };
+        DirList { depth, path, scratch: None, stream }
+    }
 
-fn is_dots(file_name: &[u8]) -> bool {
-    file_name == b"." || file_name == b".."
+    pub fn depth(&self) -> usize {
+        self.depth
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn is_failed(&self) -> bool {
+        matches!(self.stream, Stream::Failed(_))
+    }
+
+    pub fn into_built(
+        self,
+        entries: Vec<crate::Result<crate::DirEntry>>,
+    ) -> DirList {
+        DirList {
+            depth: self.depth,
+            path: self.path,
+            scratch: self.scratch,
+            stream: Stream::Built(entries.into_iter()),
+        }
+    }
+
+    pub fn next_built(&mut self) -> Option<crate::Result<crate::DirEntry>> {
+        match self.stream {
+            Stream::Built(ref mut iter) => iter.next(),
+            _ => None,
+        }
+    }
+
+    pub fn is_built(&self) -> bool {
+        matches!(self.stream, Stream::Built(_))
+    }
+
+    pub fn next(&mut self) -> Option<io::Result<()>> {
+        let result = match self.stream {
+            Stream::Open(ref mut iter) => iter.next()?,
+            Stream::Spilled(ref mut iter) => iter.next()?,
+            Stream::Built(_) => return None,
+            Stream::Failed(ref mut err) => return err.take().map(Err),
+        };
+        match result {
+            Ok(entry) => {
+                self.scratch = Some(entry);
+                Some(Ok(()))
+            }
+            Err(err) => Some(Err(err)),
+        }
+    }
+
+    pub fn entry(&self) -> &fs::DirEntry {
+        self.scratch.as_ref().expect("entry follows a successful read")
+    }
+
+    pub fn spill(&mut self) {
+        let stream = std::mem::replace(&mut self.stream, Stream::Failed(None));
+        self.stream = match stream {
+            Stream::Open(iter) => {
+                Stream::Spilled(iter.collect::<Vec<_>>().into_iter())
+            }
+            stream => stream,
+        };
+    }
 }
