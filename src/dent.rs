@@ -26,6 +26,8 @@ use crate::Result;
 /// * If [`follow_links`] was enabled on the originating iterator, then all
 /// operations except for [`path`] operate on the link target. Otherwise, all
 /// operations operate on the symbolic link.
+/// * Unlike `std::fs::DirEntry` on some platforms, `walkdir::DirEntry` does not
+/// hold an open directory file descriptor or handle.
 ///
 /// [`std::fs`]: https://doc.rust-lang.org/stable/std/fs/index.html
 /// [`path`]: #method.path
