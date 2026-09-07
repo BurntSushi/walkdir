@@ -573,7 +573,7 @@ pub struct IntoIter {
     start: Option<PathBuf>,
     /// A stack of open (up to max fd) or closed handles to directories.
     /// An open handle is a plain [`fs::ReadDir`] while a closed handle is
-    /// a `Vec<fs::DirEntry>` corresponding to the as-of-yet consumed entries.
+    /// a list of `Result<DirEntry>` corresponding to the as-of-yet consumed entries.
     ///
     /// [`fs::ReadDir`]: https://doc.rust-lang.org/stable/std/fs/struct.ReadDir.html
     stack_list: Vec<DirList>,
@@ -653,10 +653,9 @@ impl Ancestor {
 /// This represents the opened or closed state of a directory handle. When
 /// open, future entries are read by iterating over the raw `fs::ReadDir`.
 /// When closed, all future entries are read into memory. Iteration then
-/// proceeds over a [`Vec<fs::DirEntry>`].
+/// proceeds over the remaining `Result<DirEntry>` values.
 ///
 /// [`fs::ReadDir`]: https://doc.rust-lang.org/stable/std/fs/struct.ReadDir.html
-/// [`Vec<fs::DirEntry>`]: https://doc.rust-lang.org/stable/std/vec/struct.Vec.html
 #[derive(Debug)]
 enum DirList {
     /// An opened handle.
