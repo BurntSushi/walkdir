@@ -120,6 +120,8 @@ use std::vec;
 
 use same_file::Handle;
 
+use crate::sealed::SkipCurrentDir;
+
 pub use crate::dent::DirEntry;
 #[cfg(unix)]
 pub use crate::dent::DirEntryExt;
@@ -1034,6 +1036,8 @@ impl Iterator for DirList {
 ///
 /// Values of this type are created by calling [`.filter_entry()`] on an
 /// `IntoIter`, which is formed by calling [`.into_iter()`] on a `WalkDir`.
+/// Calling `.filter_entry()` on a `FilterEntry` adds another predicate, and
+/// entries must satisfy all of them.
 ///
 /// Directories that fail the predicate `P` are skipped. Namely, they are
 /// never yielded and never descended into.
@@ -1057,8 +1061,9 @@ pub struct FilterEntry<I, P> {
     predicate: P,
 }
 
-impl<P> Iterator for FilterEntry<IntoIter, P>
+impl<I, P> Iterator for FilterEntry<I, P>
 where
+    I: SkipCurrentDir,
     P: FnMut(&DirEntry) -> bool,
 {
     type Item = Result<DirEntry>;
@@ -1086,13 +1091,16 @@ where
     }
 }
 
-impl<P> iter::FusedIterator for FilterEntry<IntoIter, P> where
-    P: FnMut(&DirEntry) -> bool
+impl<I, P> iter::FusedIterator for FilterEntry<I, P>
+where
+    I: SkipCurrentDir + iter::FusedIterator,
+    P: FnMut(&DirEntry) -> bool,
 {
 }
 
-impl<P> FilterEntry<IntoIter, P>
+impl<I, P> FilterEntry<I, P>
 where
+    I: SkipCurrentDir,
     P: FnMut(&DirEntry) -> bool,
 {
     /// Yields only entries which satisfy the given predicate and skips
@@ -1141,7 +1149,10 @@ where
     /// [`skip_current_dir`]: #method.skip_current_dir
     /// [`min_depth`]: struct.WalkDir.html#method.min_depth
     /// [`max_depth`]: struct.WalkDir.html#method.max_depth
-    pub fn filter_entry(self, predicate: P) -> FilterEntry<Self, P> {
+    pub fn filter_entry<Q>(self, predicate: Q) -> FilterEntry<Self, Q>
+    where
+        Q: FnMut(&DirEntry) -> bool,
+    {
         FilterEntry { it: self, predicate }
     }
 
@@ -1190,5 +1201,33 @@ where
     /// [`filter_entry`]: #method.filter_entry
     pub fn skip_current_dir(&mut self) {
         self.it.skip_current_dir();
+    }
+}
+
+impl SkipCurrentDir for IntoIter {
+    fn skip_current_dir(&mut self) {
+        IntoIter::skip_current_dir(self);
+    }
+}
+
+impl<I, P> SkipCurrentDir for FilterEntry<I, P>
+where
+    I: SkipCurrentDir,
+    P: FnMut(&DirEntry) -> bool,
+{
+    fn skip_current_dir(&mut self) {
+        self.it.skip_current_dir();
+    }
+}
+
+mod sealed {
+    use crate::{DirEntry, Result};
+
+    /// A directory iterator that `FilterEntry` can wrap.
+    ///
+    /// This lives in a private module so that it can appear in `FilterEntry`
+    /// bounds without becoming part of the public API.
+    pub trait SkipCurrentDir: Iterator<Item = Result<DirEntry>> {
+        fn skip_current_dir(&mut self);
     }
 }
