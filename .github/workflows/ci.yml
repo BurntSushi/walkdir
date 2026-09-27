@@ -68,6 +68,12 @@ jobs:
       uses: dtolnay/rust-toolchain@master
       with:
         toolchain: ${{ matrix.rust }}
+    # winapi-util accepts windows-sys up to 0.61, but windows-sys 0.61 (via
+    # windows-link) requires Rust 1.71. Pin a release that builds on 1.60.
+    - if: startsWith(matrix.build, 'pinned')
+      run: |
+        cargo generate-lockfile
+        cargo update -p windows-sys --precise 0.59.0
     - run: cargo build --verbose
     - if: startsWith(matrix.build, 'pinned-') == false
       run: cargo doc --verbose
