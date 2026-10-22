@@ -78,15 +78,18 @@ for entry in WalkDir::new("foo").follow_links(true) {
 # Example: skip hidden files and directories on unix
 
 This uses the [`filter_entry`] iterator adapter to avoid yielding hidden files
-and directories efficiently (i.e. without recursing into hidden directories):
+and directories efficiently (i.e. without recursing into hidden directories).
+Inspecting the path's file name keeps the special root paths `.` and `..` from
+being mistaken for hidden names:
 
 ```no_run
 use walkdir::{DirEntry, WalkDir};
 # use walkdir::Error;
 
 fn is_hidden(entry: &DirEntry) -> bool {
-    entry.file_name()
-         .to_str()
+    entry.path()
+         .file_name()
+         .and_then(|name| name.to_str())
          .map(|s| s.starts_with("."))
          .unwrap_or(false)
 }
@@ -750,8 +753,9 @@ impl IntoIter {
     /// use walkdir::{DirEntry, WalkDir};
     ///
     /// fn is_hidden(entry: &DirEntry) -> bool {
-    ///     entry.file_name()
-    ///          .to_str()
+    ///     entry.path()
+    ///          .file_name()
+    ///          .and_then(|name| name.to_str())
     ///          .map(|s| s.starts_with("."))
     ///          .unwrap_or(false)
     /// }
@@ -800,8 +804,9 @@ impl IntoIter {
     /// # use walkdir::Error;
     ///
     /// fn is_hidden(entry: &DirEntry) -> bool {
-    ///     entry.file_name()
-    ///          .to_str()
+    ///     entry.path()
+    ///          .file_name()
+    ///          .and_then(|name| name.to_str())
     ///          .map(|s| s.starts_with("."))
     ///          .unwrap_or(false)
     /// }
@@ -1111,8 +1116,9 @@ where
     /// # use walkdir::Error;
     ///
     /// fn is_hidden(entry: &DirEntry) -> bool {
-    ///     entry.file_name()
-    ///          .to_str()
+    ///     entry.path()
+    ///          .file_name()
+    ///          .and_then(|name| name.to_str())
     ///          .map(|s| s.starts_with("."))
     ///          .unwrap_or(false)
     /// }
@@ -1160,8 +1166,9 @@ where
     /// use walkdir::{DirEntry, WalkDir};
     ///
     /// fn is_hidden(entry: &DirEntry) -> bool {
-    ///     entry.file_name()
-    ///          .to_str()
+    ///     entry.path()
+    ///          .file_name()
+    ///          .and_then(|name| name.to_str())
     ///          .map(|s| s.starts_with("."))
     ///          .unwrap_or(false)
     /// }

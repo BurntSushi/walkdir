@@ -66,14 +66,16 @@ for entry in WalkDir::new("foo").follow_links(true) {
 ### Example: skip hidden files and directories efficiently on unix
 
 This uses the `filter_entry` iterator adapter to avoid yielding hidden files
-and directories efficiently:
+and directories efficiently. Inspecting the path's file name keeps the special
+root paths `.` and `..` from being mistaken for hidden names:
 
 ```rust,no_run
 use walkdir::{DirEntry, WalkDir};
 
 fn is_hidden(entry: &DirEntry) -> bool {
-    entry.file_name()
-         .to_str()
+    entry.path()
+         .file_name()
+         .and_then(|name| name.to_str())
          .map(|s| s.starts_with("."))
          .unwrap_or(false)
 }
