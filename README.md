@@ -125,8 +125,8 @@ find $DIR
 time find $DIR
 
 # Compile and test speed of `walkdir` crate:
-cargo build --release --example walkdir
-time ./target/release/examples/walkdir $DIR
+cargo build --release -p walkdir-bin
+time ./target/release/walkdir-list $DIR
 
 # Compile and test speed of glibc's `nftw`:
 gcc -O3 -o nftw ./compare/nftw.c
