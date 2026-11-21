@@ -295,7 +295,7 @@ impl WalkDir {
                 follow_root_links: true,
                 max_open: 10,
                 min_depth: 0,
-                max_depth: ::std::usize::MAX,
+                max_depth: usize::MAX,
                 sorter: None,
                 contents_first: false,
                 same_file_system: false,
