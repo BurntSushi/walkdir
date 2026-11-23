@@ -1,0 +1,4 @@
+[profile.default]
+# By default Nextest runs a process per-test, which causes a race
+# condition in util::TempDir.
+test-threads = 1
