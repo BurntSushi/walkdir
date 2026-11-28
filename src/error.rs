@@ -73,8 +73,8 @@ impl Error {
     /// Returns the depth at which this error occurred relative to the root.
     ///
     /// The smallest depth is `0` and always corresponds to the path given to
-    /// the [`new`] function on [`WalkDir`]. Its direct descendents have depth
-    /// `1`, and their descendents have depth `2`, and so on.
+    /// the [`new`] function on [`WalkDir`]. Its direct descendants have depth
+    /// `1`, and their descendants have depth `2`, and so on.
     ///
     /// [`new`]: struct.WalkDir.html#method.new
     /// [`WalkDir`]: struct.WalkDir.html
