@@ -176,6 +176,22 @@ impl DirEntry {
         self.depth
     }
 
+    /// Returns `true` if this entry is a file and has the `extension` (i.e. "rs" in main.rs).
+    ///
+    /// `let found = matches!(result, Ok(entry) if entry.has_file_extension("rs"));`
+    pub fn has_file_extension(&self, extension: &str) -> bool {
+        self.file_type().is_file()
+            && matches!(self.path.extension(), Some(e) if e == extension)
+    }
+
+    /// Returns `true` if this entry is a file and has the `name` (i.e. "main.rs").
+    ///
+    /// `let found = matches!(result, Ok(entry) if entry.has_file_name("main.rs"));`
+    pub fn has_file_name(&self, name: &str) -> bool {
+        self.file_type().is_file()
+            && matches!(self.path.file_name(), Some(n) if n == name)
+    }
+
     /// Returns true if and only if this entry points to a directory.
     pub(crate) fn is_dir(&self) -> bool {
         self.ty.is_dir()
